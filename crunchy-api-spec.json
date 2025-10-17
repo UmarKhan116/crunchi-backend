@@ -1,0 +1,345 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "Crunchy Food Discovery API",
+        "version": "1.0.0",
+        "description": "Backend API specification for Crunchy mobile app"
+    },
+    "servers": [
+        {
+            "url": "https://thecrunchyapp.com/api"
+        }
+    ],
+    "paths": {
+        "/register": {
+            "post": {
+                "summary": "Register new user",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "email": {
+                                        "type": "string"
+                                    },
+                                    "password": {
+                                        "type": "string"
+                                    },
+                                    "device_token": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "email",
+                                    "password"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "User registered successfully"
+                    }
+                }
+            }
+        },
+        "/login": {
+            "post": {
+                "summary": "User login",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "string"
+                                    },
+                                    "password": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "email",
+                                    "password"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Login successful"
+                    }
+                }
+            }
+        },
+        "/socialLogin": {
+            "post": {
+                "summary": "Social login",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "string"
+                                    },
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "provider": {
+                                        "type": "string"
+                                    },
+                                    "social_id": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "provider",
+                                    "social_id"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Social login successful"
+                    }
+                }
+            }
+        },
+        "/category-list": {
+            "get": {
+                "summary": "Get all categories",
+                "responses": {
+                    "200": {
+                        "description": "List of categories"
+                    }
+                }
+            }
+        },
+        "/post-save": {
+            "post": {
+                "summary": "Create a new post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "description": {
+                                        "type": "string"
+                                    },
+                                    "images": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "location": {
+                                        "type": "string"
+                                    },
+                                    "category_id": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "required": [
+                                    "description",
+                                    "category_id"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Post created successfully"
+                    }
+                }
+            }
+        },
+        "/post-update/{id}": {
+            "post": {
+                "summary": "Update post by ID",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "description": {
+                                        "type": "string"
+                                    },
+                                    "images": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Post updated"
+                    }
+                }
+            }
+        },
+        "/post-delete/{id}": {
+            "delete": {
+                "summary": "Delete post by ID",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Post deleted"
+                    }
+                }
+            }
+        },
+        "/post_like": {
+            "post": {
+                "summary": "Like a post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "post_id": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "required": [
+                                    "post_id"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Post liked"
+                    }
+                }
+            }
+        },
+        "/comment-post": {
+            "post": {
+                "summary": "Comment on a post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "post_id": {
+                                        "type": "integer"
+                                    },
+                                    "comment": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "post_id",
+                                    "comment"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Comment added"
+                    }
+                }
+            }
+        },
+        "/favoriteplace": {
+            "post": {
+                "summary": "Like a restaurant",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "restaurant_id": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "required": [
+                                    "restaurant_id"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Restaurant liked"
+                    }
+                }
+            }
+        },
+        "/userfavoriteplace": {
+            "get": {
+                "summary": "Get user's favorite restaurants",
+                "responses": {
+                    "200": {
+                        "description": "List of favorites"
+                    }
+                }
+            }
+        },
+        "/getUserNotification": {
+            "get": {
+                "summary": "Get all notifications for user",
+                "responses": {
+                    "200": {
+                        "description": "User notifications"
+                    }
+                }
+            }
+        },
+        "/get-advertisements": {
+            "get": {
+                "summary": "Fetch advertisements",
+                "responses": {
+                    "200": {
+                        "description": "Advertisements list"
+                    }
+                }
+            }
+        }
+    }
+}
