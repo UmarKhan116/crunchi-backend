@@ -301,4 +301,79 @@ export class RestaurantsService {
       };
     }
   }
+
+  async getAllRestaurants() {
+    try {
+      const restaurants = await this.restaurantRepository.find({
+        where: { is_active: true },
+        order: { created_at: 'DESC' },
+      });
+
+      return {
+        success: true,
+        message: 'Restaurants retrieved successfully',
+        data: restaurants,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to get restaurants: ' + error.message,
+        data: [],
+      };
+    }
+  }
+
+  async getRestaurantById(restaurantId: number) {
+    try {
+      const restaurant = await this.restaurantRepository.findOne({
+        where: { id: restaurantId },
+        relations: ['posts', 'posts.user', 'posts.category'],
+      });
+
+      if (!restaurant) {
+        return {
+          success: false,
+          message: 'Restaurant not found',
+        };
+      }
+
+      return {
+        success: true,
+        message: 'Restaurant retrieved successfully',
+        data: restaurant,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to get restaurant: ' + error.message,
+      };
+    }
+  }
+
+  async getRestaurantByGooglePlaceId(googlePlaceId: string) {
+    try {
+      const restaurant = await this.restaurantRepository.findOne({
+        where: { google_place_id: googlePlaceId },
+        relations: ['posts', 'posts.user', 'posts.category'],
+      });
+
+      if (!restaurant) {
+        return {
+          success: false,
+          message: 'Restaurant not found',
+        };
+      }
+
+      return {
+        success: true,
+        message: 'Restaurant retrieved successfully',
+        data: restaurant,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to get restaurant: ' + error.message,
+      };
+    }
+  }
 }

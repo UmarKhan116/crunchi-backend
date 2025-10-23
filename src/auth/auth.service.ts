@@ -290,13 +290,42 @@ export class AuthService {
         throw new NotFoundException('User not found');
       }
 
-      // Update user fields (excluding email for security)
+      // Update user fields
       if (userProfileDto.name) user.full_name = userProfileDto.name;
+      if (userProfileDto.full_name) user.full_name = userProfileDto.full_name;
       if (userProfileDto.user_name) user.user_name = userProfileDto.user_name;
       if (userProfileDto.bio) user.bio = userProfileDto.bio;
       if (userProfileDto.location) user.location = userProfileDto.location;
+
+      // Handle image/profile_picture
+      if (userProfileDto.image) user.profile_picture = userProfileDto.image;
       if (userProfileDto.profile_picture)
         user.profile_picture = userProfileDto.profile_picture;
+
+      // Handle password update
+      if (userProfileDto.password && userProfileDto.password_confirmation) {
+        // Validate passwords match
+        if (userProfileDto.password !== userProfileDto.password_confirmation) {
+          return {
+            success: false,
+            message: 'Passwords do not match',
+          };
+        }
+
+        // Validate password length
+        if (userProfileDto.password.length < 7) {
+          return {
+            success: false,
+            message: 'Password must be at least 7 characters long',
+          };
+        }
+
+        // Only update if password is not the placeholder
+        if (userProfileDto.password !== '*************') {
+          user.password = await bcrypt.hash(userProfileDto.password, 10);
+        }
+      }
+
       // Email is intentionally NOT updated for security reasons
 
       const updatedUser = await this.userRepository.save(user);

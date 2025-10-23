@@ -102,9 +102,60 @@ export class SettingsService {
     }
   }
 
-  async saveAppSettings(appSettingsDto: AppSettingsDto) {
+  async saveAppSettings(appSettingsDto: any, userId?: number) {
     try {
-      // Find existing setting by key or create new
+      // If userId is provided, save to user's app_settings
+      if (userId) {
+        const user = await this.userRepository.findOne({
+          where: { id: userId },
+        });
+
+        if (!user) {
+          return {
+            success: false,
+            message: 'User not found',
+          };
+        }
+
+        // Handle legacy format from frontend (dark, toggle, vibrations)
+        const appSettings = user.app_settings || {};
+
+        if (appSettingsDto.dark !== undefined) {
+          appSettings.dark_mode = appSettingsDto.dark;
+        }
+        if (appSettingsDto.toggle !== undefined) {
+          appSettings.toggledark_mode = appSettingsDto.toggle;
+        }
+        if (appSettingsDto.vibrations !== undefined) {
+          appSettings.vibrations = appSettingsDto.vibrations;
+        }
+
+        // Also handle standard format
+        if (appSettingsDto.dark_mode !== undefined) {
+          appSettings.dark_mode = appSettingsDto.dark_mode;
+        }
+        if (appSettingsDto.toggledark_mode !== undefined) {
+          appSettings.toggledark_mode = appSettingsDto.toggledark_mode;
+        }
+
+        user.app_settings = appSettings;
+        await this.userRepository.save(user);
+
+        return {
+          success: true,
+          message: 'App settings saved successfully',
+          settings: appSettings,
+        };
+      }
+
+      // Otherwise, save to AppSetting table (for admin settings)
+      if (!appSettingsDto.key || !appSettingsDto.value) {
+        return {
+          success: false,
+          message: 'Key and value are required for app settings',
+        };
+      }
+
       let appSetting = await this.appSettingRepository.findOne({
         where: { key: appSettingsDto.key },
       });
@@ -116,7 +167,11 @@ export class SettingsService {
           appSetting.description = appSettingsDto.description;
       } else {
         // Create new setting
-        appSetting = this.appSettingRepository.create(appSettingsDto);
+        appSetting = this.appSettingRepository.create({
+          key: appSettingsDto.key,
+          value: appSettingsDto.value,
+          description: appSettingsDto.description,
+        });
       }
 
       const savedSetting = await this.appSettingRepository.save(appSetting);

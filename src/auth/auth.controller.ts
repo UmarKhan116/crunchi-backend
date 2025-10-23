@@ -101,7 +101,7 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Profile updated successfully' })
   async updateProfile(
     @Headers('authorization') authorization: string,
-    @Body(ValidationPipe) userProfileDto: UserProfileDto,
+    @Body() userProfileDto: any,
   ) {
     const userId = this.extractUserIdFromToken(authorization);
     return this.authService.updateProfile(userId, userProfileDto);

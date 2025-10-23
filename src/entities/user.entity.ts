@@ -60,6 +60,13 @@ export class User {
   @Column({ nullable: true })
   reset_password_expires: Date;
 
+  @Column({ type: 'json', nullable: true })
+  app_settings: {
+    dark_mode?: string;
+    toggledark_mode?: string;
+    vibrations?: string;
+  };
+
   @CreateDateColumn()
   created_at: Date;
 

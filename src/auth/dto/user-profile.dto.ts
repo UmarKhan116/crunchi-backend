@@ -12,6 +12,15 @@ export class UserProfileDto {
   name?: string;
 
   @ApiProperty({
+    description: 'User full name (alternative field name)',
+    example: 'John Doe',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  full_name?: string;
+
+  @ApiProperty({
     description: 'Username',
     example: 'john_doe_123',
     required: false,
@@ -20,8 +29,32 @@ export class UserProfileDto {
   @IsString()
   user_name?: string;
 
-  // Note: Email is not included in update DTO for security reasons
-  // Email can only be set during registration and cannot be changed
+  @ApiProperty({
+    description: 'Email (read-only, included for frontend compatibility)',
+    example: 'john@example.com',
+    required: false,
+  })
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @ApiProperty({
+    description: 'New password',
+    example: 'newpassword123',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  password?: string;
+
+  @ApiProperty({
+    description: 'Password confirmation',
+    example: 'newpassword123',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  password_confirmation?: string;
 
   @ApiProperty({
     description: 'User bio',
@@ -42,11 +75,20 @@ export class UserProfileDto {
   location?: string;
 
   @ApiProperty({
-    description: 'Profile picture URL',
-    example: 'https://example.com/profile.jpg',
+    description: 'Profile picture URL or filename',
+    example: 'profile.jpg',
     required: false,
   })
   @IsOptional()
   @IsString()
   profile_picture?: string;
+
+  @ApiProperty({
+    description: 'Image filename (for file uploads)',
+    example: 'profile.jpg',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  image?: string;
 }

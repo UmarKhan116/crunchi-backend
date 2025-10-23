@@ -74,10 +74,10 @@ export class SettingsController {
   @ApiBearerAuth('JWT-auth')
   @ApiResponse({ status: 200, description: 'App settings saved successfully' })
   async saveAppSettings(
-    @Body(ValidationPipe) appSettingsDto: AppSettingsDto,
+    @Body() appSettingsDto: any,
     @Headers('authorization') authorization: string,
   ) {
     const userId = this.extractUserIdFromToken(authorization);
-    return this.settingsService.saveAppSettings(appSettingsDto);
+    return this.settingsService.saveAppSettings(appSettingsDto, userId);
   }
 }
