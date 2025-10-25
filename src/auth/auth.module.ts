@@ -11,7 +11,7 @@ import { User } from '../entities/user.entity';
     JwtModule.register({
       secret:
         process.env.JWT_SECRET ||
-        'your-super-secret-jwt-key-change-in-production',
+        'crunchy-super-secret-jwt-key-change-in-production-2024',
       signOptions: { expiresIn: '7d' },
     }),
   ],

@@ -43,16 +43,39 @@ export class PostsService {
         };
       }
 
+      // Handle restaurant if provided
+      let restaurantId = null;
+      if (createPostDto.restaurant_id) {
+        // Check if restaurant exists, if not create it
+        let restaurant = await this.restaurantRepository.findOne({
+          where: { google_place_id: createPostDto.restaurant_id },
+        });
+
+        if (!restaurant && createPostDto.restaurant) {
+          // Create new restaurant entry
+          restaurant = this.restaurantRepository.create({
+            google_place_id: createPostDto.restaurant_id,
+            name: createPostDto.restaurant,
+            latitude: createPostDto.latitude,
+            longitude: createPostDto.longitude,
+          });
+          await this.restaurantRepository.save(restaurant);
+        }
+
+        restaurantId = restaurant?.id || null;
+      }
+
       // Create post
       const post = this.postRepository.create({
-        ...createPostDto,
-        user_id: userId || (createPostDto as any).user_id,
-        category_id: createPostDto.category_id,
-        restaurant_id: (createPostDto as any).restaurant_id || null,
-        rating: (createPostDto as any).rating || null,
-        latitude: (createPostDto as any).latitude || null,
-        longitude: (createPostDto as any).longitude || null,
+        description: createPostDto.description,
+        images: createPostDto.images || [],
         location: createPostDto.location || null,
+        user_id: userId || createPostDto.user_id,
+        category_id: createPostDto.category_id,
+        restaurant_id: restaurantId,
+        rating: createPostDto.rating || null,
+        latitude: createPostDto.latitude || null,
+        longitude: createPostDto.longitude || null,
       });
 
       const savedPost = await this.postRepository.save(post);
@@ -97,11 +120,37 @@ export class PostsService {
         relations: ['user'],
       });
 
+      // Transform post to match frontend expectations
+      const file = [];
+      if (post.images && Array.isArray(post.images)) {
+        post.images.forEach((imageUrl: string) => {
+          // Detect if it's a video or image based on extension
+          const extension = imageUrl.split('.').pop()?.toLowerCase();
+          const videoExtensions = ['mp4', 'mov', 'avi', 'mkv', 'webm'];
+          const type = videoExtensions.includes(extension || '')
+            ? 'video'
+            : 'image';
+
+          file.push({
+            filenames: imageUrl,
+            type: type,
+          });
+        });
+      }
+
+      // Add image field to user for backwards compatibility
+      if (post.user) {
+        (post.user as any).image = post.user.profile_picture;
+      }
+
       return {
         success: true,
         message: 'Post retrieved successfully',
         post: {
           ...post,
+          file: file,
+          review: post.description, // Frontend expects 'review', backend has 'description'
+          name: post.location, // Frontend expects 'name' field
           comments,
           likes,
         },
@@ -135,13 +184,38 @@ export class PostsService {
         };
       }
 
+      // Handle restaurant update if provided
+      if (updatePostDto.restaurant_id) {
+        let restaurant = await this.restaurantRepository.findOne({
+          where: { google_place_id: updatePostDto.restaurant_id },
+        });
+
+        if (!restaurant && updatePostDto.restaurant) {
+          restaurant = this.restaurantRepository.create({
+            google_place_id: updatePostDto.restaurant_id,
+            name: updatePostDto.restaurant,
+            latitude: updatePostDto.latitude,
+            longitude: updatePostDto.longitude,
+          });
+          await this.restaurantRepository.save(restaurant);
+        }
+
+        post.restaurant_id = restaurant?.id || null;
+      }
+
       // Update post fields
       if (updatePostDto.description)
         post.description = updatePostDto.description;
       if (updatePostDto.images) post.images = updatePostDto.images;
       if (updatePostDto.location) post.location = updatePostDto.location;
-      if ((updatePostDto as any).rating)
-        post.rating = (updatePostDto as any).rating;
+      if (updatePostDto.rating !== undefined)
+        post.rating = updatePostDto.rating;
+      if (updatePostDto.latitude !== undefined)
+        post.latitude = updatePostDto.latitude;
+      if (updatePostDto.longitude !== undefined)
+        post.longitude = updatePostDto.longitude;
+      if (updatePostDto.category_id)
+        post.category_id = updatePostDto.category_id;
 
       const updatedPost = await this.postRepository.save(post);
 
@@ -200,11 +274,29 @@ export class PostsService {
       const { latitude, longitude, radius = 40 } = locationDto;
 
       // Get all active posts with relations
+      console.log('🔍 Fetching posts with likes and comments...');
       const posts = await this.postRepository.find({
         where: { is_active: true },
-        relations: ['user', 'category', 'restaurant', 'likes', 'comments'],
+        relations: [
+          'user',
+          'category',
+          'restaurant',
+          'likes',
+          'likes.user',
+          'comments',
+          'comments.user',
+        ],
         order: { created_at: 'DESC' },
       });
+
+      console.log(`📊 Found ${posts.length} posts`);
+      if (posts.length > 0) {
+        console.log(`📊 Sample post likes count:`, posts[0].likes?.length || 0);
+        console.log(
+          `📊 Sample post comments count:`,
+          posts[0].comments?.length || 0,
+        );
+      }
 
       // Filter posts by distance if location provided
       let filteredPosts = posts;
@@ -223,10 +315,43 @@ export class PostsService {
         });
       }
 
+      // Transform posts to match frontend expectations
+      const transformedPosts = filteredPosts.map((post: any) => {
+        // Transform images array to file array format
+        const file = [];
+        if (post.images && Array.isArray(post.images)) {
+          post.images.forEach((imageUrl: string) => {
+            // Detect if it's a video or image based on extension
+            const extension = imageUrl.split('.').pop()?.toLowerCase();
+            const videoExtensions = ['mp4', 'mov', 'avi', 'mkv', 'webm'];
+            const type = videoExtensions.includes(extension || '')
+              ? 'video'
+              : 'image';
+
+            file.push({
+              filenames: imageUrl,
+              type: type,
+            });
+          });
+        }
+
+        // Add image field to user for backwards compatibility
+        if (post.user) {
+          post.user.image = post.user.profile_picture;
+        }
+
+        return {
+          ...post,
+          file: file,
+          review: post.description, // Frontend expects 'review', backend has 'description'
+          name: post.location, // Frontend expects 'name' field
+        };
+      });
+
       return {
         success: true,
         message: 'Posts retrieved successfully',
-        post: filteredPosts,
+        post: transformedPosts,
       };
     } catch (error) {
       return {
@@ -240,6 +365,12 @@ export class PostsService {
   async like(likePostDto: LikePostDto, userId?: number) {
     try {
       const actualUserId = userId || (likePostDto as any).user_id;
+      console.log(
+        '📝 Like request - Post ID:',
+        likePostDto.post_id,
+        'User ID:',
+        actualUserId,
+      );
 
       // Check if post exists
       const post = await this.postRepository.findOne({
@@ -247,6 +378,7 @@ export class PostsService {
       });
 
       if (!post) {
+        console.log('❌ Post not found:', likePostDto.post_id);
         return {
           success: false,
           message: 'Post not found',
@@ -263,10 +395,15 @@ export class PostsService {
 
       if (existingLike) {
         // Unlike - remove the like
+        console.log(
+          '🔄 Unliking post - removing existing like ID:',
+          existingLike.id,
+        );
         await this.likeRepository.remove(existingLike);
         post.likes_count = Math.max(0, post.likes_count - 1);
         await this.postRepository.save(post);
 
+        console.log('✅ Post unliked - new count:', post.likes_count);
         return {
           success: true,
           message: 'Post unliked successfully',
@@ -274,22 +411,31 @@ export class PostsService {
         };
       } else {
         // Like - add the like
+        console.log('➕ Creating new like for post');
         const newLike = this.likeRepository.create({
           user_id: actualUserId,
           post_id: likePostDto.post_id,
         });
 
-        await this.likeRepository.save(newLike);
+        const savedLike = await this.likeRepository.save(newLike);
+        console.log('💾 Like saved to DB - Like ID:', savedLike.id);
+
         post.likes_count = post.likes_count + 1;
         await this.postRepository.save(post);
 
+        console.log(
+          '✅ Post liked successfully - new count:',
+          post.likes_count,
+        );
         return {
           success: true,
           message: 'Post liked successfully',
           liked: true,
+          like_id: savedLike.id,
         };
       }
     } catch (error) {
+      console.error('❌ Like error:', error.message);
       return {
         success: false,
         message: 'Failed to like post: ' + error.message,

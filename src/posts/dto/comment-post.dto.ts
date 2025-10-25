@@ -1,4 +1,4 @@
-import { IsInt, IsString } from 'class-validator';
+import { IsInt, IsString, IsOptional } from 'class-validator';
 
 export class CommentPostDto {
   @IsInt()
@@ -6,4 +6,8 @@ export class CommentPostDto {
 
   @IsString()
   comment: string;
+
+  @IsOptional()
+  @IsInt()
+  created_id?: number;
 }

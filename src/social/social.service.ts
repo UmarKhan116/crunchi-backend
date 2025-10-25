@@ -76,12 +76,41 @@ export class SocialService {
       }
 
       // Get user's posts
-      const posts = await this.postRepository.find({
+      let posts = await this.postRepository.find({
         where: { user_id: userId, is_active: true },
         relations: ['category', 'likes', 'comments'],
         order: { created_at: 'DESC' },
         take: 50,
       });
+
+      // Transform posts to match frontend expectations
+      if (posts && posts.length > 0) {
+        posts = posts.map((post: any) => {
+          // Transform images array to file array format
+          const file = [];
+          if (post.images && Array.isArray(post.images)) {
+            post.images.forEach((imageUrl: string) => {
+              // Detect if it's a video or image based on extension
+              const extension = imageUrl.split('.').pop()?.toLowerCase();
+              const videoExtensions = ['mp4', 'mov', 'avi', 'mkv', 'webm'];
+              const type = videoExtensions.includes(extension || '')
+                ? 'video'
+                : 'image';
+
+              file.push({
+                filenames: imageUrl,
+                type: type,
+              });
+            });
+          }
+
+          return {
+            ...post,
+            file: file,
+            review: post.description, // Frontend expects 'review', backend has 'description'
+          };
+        });
+      }
 
       // Get followers count
       const followersCount = await this.followRepository.count({
@@ -98,11 +127,17 @@ export class SocialService {
       delete user.reset_password_token;
       delete user.reset_password_expires;
 
+      // Add 'image' field for backwards compatibility (frontend expects 'image')
+      const transformedUser = {
+        ...user,
+        image: user.profile_picture,
+      };
+
       return {
         success: true,
         message: 'User data retrieved successfully',
         user: {
-          ...user,
+          ...transformedUser,
           posts,
           followersCount,
           followingCount,

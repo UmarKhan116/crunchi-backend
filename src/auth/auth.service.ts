@@ -267,9 +267,44 @@ export class AuthService {
       delete user.reset_password_token;
       delete user.reset_password_expires;
 
+      // Transform posts to match frontend expectations
+      if (user.posts && user.posts.length > 0) {
+        user.posts = user.posts.map((post: any) => {
+          // Transform images array to file array format
+          const file = [];
+          if (post.images && Array.isArray(post.images)) {
+            post.images.forEach((imageUrl: string) => {
+              // Detect if it's a video or image based on extension
+              const extension = imageUrl.split('.').pop()?.toLowerCase();
+              const videoExtensions = ['mp4', 'mov', 'avi', 'mkv', 'webm'];
+              const type = videoExtensions.includes(extension || '')
+                ? 'video'
+                : 'image';
+
+              file.push({
+                filenames: imageUrl,
+                type: type,
+              });
+            });
+          }
+
+          return {
+            ...post,
+            file: file,
+            review: post.description, // Frontend expects 'review', backend has 'description'
+          };
+        });
+      }
+
+      // Add 'image' field for backwards compatibility (frontend expects 'image')
+      const transformedUser = {
+        ...user,
+        image: user.profile_picture,
+      };
+
       return {
         success: true,
-        user,
+        user: transformedUser,
       };
     } catch (error) {
       return {

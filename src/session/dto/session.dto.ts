@@ -3,6 +3,24 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class SessionDto {
   @ApiProperty({
+    description: 'Session type',
+    example: 'login',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @ApiProperty({
+    description: 'Session ID',
+    example: 'session_123',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  session_id?: string;
+
+  @ApiProperty({
     description: 'Device type',
     example: 'mobile',
     required: false,
