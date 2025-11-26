@@ -14,12 +14,15 @@ import { SocialLoginDto } from './dto/social-login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { UserProfileDto } from './dto/user-profile.dto';
 import { User } from '../entities/user.entity';
+import { UserSetting } from '../entities/user-setting.entity';
 
 @Injectable()
 export class AuthService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(UserSetting)
+    private readonly userSettingRepository: Repository<UserSetting>,
     private readonly jwtService: JwtService,
   ) {}
 
@@ -255,12 +258,17 @@ export class AuthService {
     try {
       const user = await this.userRepository.findOne({
         where: { id: userId },
-        relations: ['posts', 'followers', 'following'],
+        relations: ['posts', 'posts.restaurant', 'followers', 'followers.follower', 'following', 'following.following'],
       });
 
       if (!user) {
         throw new NotFoundException('User not found');
       }
+
+      // Fetch user settings/preferences from database
+      const userSettings = await this.userSettingRepository.findOne({
+        where: { user_id: userId },
+      });
 
       // Remove password from response
       delete user.password;
@@ -292,14 +300,43 @@ export class AuthService {
             ...post,
             file: file,
             review: post.description, // Frontend expects 'review', backend has 'description'
+            name: post.location, // Frontend expects 'name' field for post title
+            restaurant: post.restaurant?.name || post.location, // Restaurant name
           };
         });
+      }
+
+      // Transform followers: follower → follows (to match frontend expectation)
+      if (user.followers && user.followers.length > 0) {
+        user.followers = user.followers.map((follow: any) => ({
+          ...follow,
+          follows: follow.follower ? {
+            ...follow.follower,
+            image: follow.follower.profile_picture || follow.follower.image,
+          } : null,
+        }));
+      } else {
+        user.followers = [];
+      }
+
+      // Transform following: ensure following property exists with image
+      if (user.following && user.following.length > 0) {
+        user.following = user.following.map((follow: any) => ({
+          ...follow,
+          following: follow.following ? {
+            ...follow.following,
+            image: follow.following.profile_picture || follow.following.image,
+          } : null,
+        }));
+      } else {
+        user.following = [];
       }
 
       // Add 'image' field for backwards compatibility (frontend expects 'image')
       const transformedUser = {
         ...user,
         image: user.profile_picture,
+        user_settings: userSettings || null, // Include user preferences from database
       };
 
       return {

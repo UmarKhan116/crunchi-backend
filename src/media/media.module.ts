@@ -23,7 +23,7 @@ import { extname } from 'path';
         },
       }),
       fileFilter: (req, file, cb) => {
-        const allowedTypes = /jpeg|jpg|png|gif/;
+        const allowedTypes = /jpeg|jpg|png|gif|mp4|mov|avi|wmv|flv|webm/;
         const mimetype = allowedTypes.test(file.mimetype);
         const extname_test = allowedTypes.test(
           extname(file.originalname).toLowerCase(),
@@ -34,13 +34,13 @@ import { extname } from 'path';
         }
         cb(
           new Error(
-            'Invalid file type. Only JPEG, JPG, PNG and GIF files are allowed.',
+            'Invalid file type. Only images (JPEG, JPG, PNG, GIF) and videos (MP4, MOV, AVI, WMV, FLV, WEBM) are allowed.',
           ),
           false,
         );
       },
       limits: {
-        fileSize: 10 * 1024 * 1024, // 10MB
+        fileSize: 50 * 1024 * 1024, // 50MB for videos
       },
     }),
   ],

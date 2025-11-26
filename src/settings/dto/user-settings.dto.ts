@@ -81,4 +81,33 @@ export class UserSettingsDto {
   @IsArray()
   @IsString({ each: true })
   dietary_preferences?: string[];
+
+  // ✅ LEGACY FIELDS for backward compatibility with old frontend
+  @ApiProperty({
+    description: 'Legacy field: category IDs (use favorite_categories instead)',
+    example: [1, 2, 3],
+    required: false,
+  })
+  @IsOptional()
+  @IsArray()
+  @IsNumber({}, { each: true })
+  category_id?: number[];
+
+  @ApiProperty({
+    description: 'Legacy field: radius (use search_radius instead)',
+    example: 10,
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber()
+  radius?: number;
+
+  @ApiProperty({
+    description: 'Legacy field: search randomly flag',
+    example: 0,
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber()
+  search_randomly?: number;
 }

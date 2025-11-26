@@ -345,6 +345,7 @@ export class PostsService {
           file: file,
           review: post.description, // Frontend expects 'review', backend has 'description'
           name: post.location, // Frontend expects 'name' field
+          restaurant: post.restaurant?.name || post.location, // Restaurant name
         };
       });
 

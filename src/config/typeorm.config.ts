@@ -15,7 +15,7 @@ export const AppDataSource = new DataSource({
   entities: [join(__dirname, '..', 'entities', '*.entity{.ts,.js}')],
   migrations: [join(__dirname, '..', 'migrations', '*{.ts,.js}')],
   synchronize: false, // Disable in production, use migrations
-  logging: process.env.NODE_ENV === 'development',
+  logging: false, // Disable query logging
   ssl:
     process.env.NODE_ENV === 'production'
       ? { rejectUnauthorized: false }

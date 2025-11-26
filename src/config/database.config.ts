@@ -17,7 +17,7 @@ export const getDatabaseConfig = (
     configService.get('USE_MIGRATIONS') !== 'true' &&
     configService.get('NODE_ENV') === 'development',
   migrationsRun: configService.get('USE_MIGRATIONS') === 'true',
-  logging: configService.get('NODE_ENV') === 'development',
+  logging: false, // Disable query logging
   ssl:
     configService.get('NODE_ENV') === 'production'
       ? { rejectUnauthorized: false }

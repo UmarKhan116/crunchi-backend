@@ -20,7 +20,7 @@ export class SocialService {
   async followUser(followUserDto: FollowUserDto, currentUserId?: number) {
     try {
       const followerId = currentUserId || (followUserDto as any).follower_id;
-      const followingId = (followUserDto as any).following_id;
+      const followingId = followUserDto.user_id;
 
       // Check if already following
       const existingFollow = await this.followRepository.findOne({
@@ -36,7 +36,7 @@ export class SocialService {
 
         return {
           success: true,
-          message: 'User unfollowed successfully',
+          message: 'User Unfollow',
           following: false,
         };
       } else {
@@ -50,7 +50,7 @@ export class SocialService {
 
         return {
           success: true,
-          message: 'User followed successfully',
+          message: 'User Follow',
           following: true,
         };
       }
@@ -66,6 +66,7 @@ export class SocialService {
     try {
       const user = await this.userRepository.findOne({
         where: { id: userId, is_active: true },
+        relations: ['followers', 'followers.follower', 'following', 'following.following'],
       });
 
       if (!user) {
@@ -78,7 +79,7 @@ export class SocialService {
       // Get user's posts
       let posts = await this.postRepository.find({
         where: { user_id: userId, is_active: true },
-        relations: ['category', 'likes', 'comments'],
+        relations: ['category', 'restaurant', 'likes', 'comments'],
         order: { created_at: 'DESC' },
         take: 50,
       });
@@ -108,6 +109,8 @@ export class SocialService {
             ...post,
             file: file,
             review: post.description, // Frontend expects 'review', backend has 'description'
+            name: post.location, // Frontend expects 'name' field for post title
+            restaurant: post.restaurant?.name || post.location, // Restaurant name
           };
         });
       }
@@ -121,6 +124,32 @@ export class SocialService {
       const followingCount = await this.followRepository.count({
         where: { follower_id: userId },
       });
+
+      // Transform followers: follower → follows (to match frontend expectation)
+      if (user.followers && user.followers.length > 0) {
+        user.followers = user.followers.map((follow: any) => ({
+          ...follow,
+          follows: follow.follower ? {
+            ...follow.follower,
+            image: follow.follower.profile_picture || follow.follower.image,
+          } : null,
+        }));
+      } else {
+        user.followers = [];
+      }
+
+      // Transform following: ensure following property exists with image
+      if (user.following && user.following.length > 0) {
+        user.following = user.following.map((follow: any) => ({
+          ...follow,
+          following: follow.following ? {
+            ...follow.following,
+            image: follow.following.profile_picture || follow.following.image,
+          } : null,
+        }));
+      } else {
+        user.following = [];
+      }
 
       // Remove password from response
       delete user.password;
@@ -139,6 +168,8 @@ export class SocialService {
         user: {
           ...transformedUser,
           posts,
+          followers: transformedUser.followers,
+          following: transformedUser.following,
           followersCount,
           followingCount,
           postsCount: posts.length,

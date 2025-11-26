@@ -27,13 +27,101 @@ export class RestaurantsService {
     try {
       const actualUserId = userId || (favoriteRestaurantDto as any).user_id;
 
-      // Check if restaurant exists, create if not
-      let restaurant = await this.restaurantRepository.findOne({
-        where: { id: favoriteRestaurantDto.restaurant_id },
-      });
+      // Debug: Log incoming data
+      console.log('📥 Favorite Restaurant API - Received data:');
+      console.log('  - Name:', (favoriteRestaurantDto as any).name);
+      console.log(
+        '  - Google Place ID:',
+        (favoriteRestaurantDto as any).google_place_id,
+      );
+      console.log(
+        '  - Photo Reference:',
+        (favoriteRestaurantDto as any).photo_reference?.substring(0, 30) +
+          '...',
+      );
+      console.log('  - Address:', (favoriteRestaurantDto as any).address);
+      console.log('  - Rating:', (favoriteRestaurantDto as any).rating);
+
+      // Check if restaurant exists by google_place_id first, then by id
+      let restaurant = null;
+
+      if ((favoriteRestaurantDto as any).google_place_id) {
+        restaurant = await this.restaurantRepository.findOne({
+          where: {
+            google_place_id: (favoriteRestaurantDto as any).google_place_id,
+          },
+        });
+      }
+
+      if (!restaurant && favoriteRestaurantDto.restaurant_id) {
+        restaurant = await this.restaurantRepository.findOne({
+          where: { id: favoriteRestaurantDto.restaurant_id },
+        });
+      }
+
+      // If restaurant exists but has incomplete data, update it
+      if (restaurant && (favoriteRestaurantDto as any).google_place_id) {
+        let needsUpdate = false;
+
+        // Update if name is missing or "Unknown Restaurant"
+        if (!restaurant.name || restaurant.name === 'Unknown Restaurant') {
+          restaurant.name =
+            (favoriteRestaurantDto as any).name || restaurant.name;
+          needsUpdate = true;
+        }
+
+        // Update if photo reference is missing
+        if (
+          !restaurant.google_photo_reference &&
+          (favoriteRestaurantDto as any).photo_reference
+        ) {
+          restaurant.google_photo_reference = (
+            favoriteRestaurantDto as any
+          ).photo_reference;
+          needsUpdate = true;
+        }
+
+        // Update other fields if missing
+        if (!restaurant.address && (favoriteRestaurantDto as any).address) {
+          restaurant.address = (favoriteRestaurantDto as any).address;
+          needsUpdate = true;
+        }
+
+        if (!restaurant.latitude && (favoriteRestaurantDto as any).latitude) {
+          restaurant.latitude = (favoriteRestaurantDto as any).latitude;
+          needsUpdate = true;
+        }
+
+        if (!restaurant.longitude && (favoriteRestaurantDto as any).longitude) {
+          restaurant.longitude = (favoriteRestaurantDto as any).longitude;
+          needsUpdate = true;
+        }
+
+        if (
+          !restaurant.google_rating &&
+          (favoriteRestaurantDto as any).rating
+        ) {
+          restaurant.google_rating = (favoriteRestaurantDto as any).rating;
+          needsUpdate = true;
+        }
+
+        if (needsUpdate) {
+          console.log('🔄 Updating incomplete restaurant data:', {
+            id: restaurant.id,
+            name: restaurant.name,
+            photo_reference:
+              restaurant.google_photo_reference?.substring(0, 20) + '...',
+          });
+          restaurant = await this.restaurantRepository.save(restaurant);
+        }
+      }
 
       // If restaurant doesn't exist and has google place id, create it
       if (!restaurant && (favoriteRestaurantDto as any).google_place_id) {
+        console.log(
+          '✨ Creating new restaurant:',
+          (favoriteRestaurantDto as any).name,
+        );
         restaurant = this.restaurantRepository.create({
           name: (favoriteRestaurantDto as any).name || 'Unknown Restaurant',
           google_place_id: (favoriteRestaurantDto as any).google_place_id,
@@ -45,6 +133,14 @@ export class RestaurantsService {
             (favoriteRestaurantDto as any).photo_reference || null,
         });
         restaurant = await this.restaurantRepository.save(restaurant);
+
+        console.log('✅ Restaurant saved to DB:');
+        console.log('  - ID:', restaurant.id);
+        console.log('  - Name:', restaurant.name);
+        console.log(
+          '  - Photo Reference:',
+          restaurant.google_photo_reference?.substring(0, 30) + '...',
+        );
       }
 
       if (!restaurant) {
@@ -105,6 +201,19 @@ export class RestaurantsService {
       const favoriteRestaurants = favorites
         .filter((fav) => fav.restaurant)
         .map((fav) => fav.restaurant);
+
+      console.log('🍽️ GET FAVORITES API - Returning data:');
+      console.log('  - Total favorites:', favoriteRestaurants.length);
+      if (favoriteRestaurants.length > 0) {
+        console.log('  - First restaurant:', {
+          id: favoriteRestaurants[0].id,
+          name: favoriteRestaurants[0].name,
+          google_place_id: favoriteRestaurants[0].google_place_id,
+          google_photo_reference:
+            favoriteRestaurants[0].google_photo_reference?.substring(0, 30) +
+            '...',
+        });
+      }
 
       return {
         success: true,

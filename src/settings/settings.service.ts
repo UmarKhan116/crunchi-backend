@@ -22,6 +22,21 @@ export class SettingsService {
     try {
       const actualUserId = userId || (userSettingsDto as any).user_id;
 
+      // Handle legacy field names from frontend for backward compatibility
+      const dtoWithLegacy = userSettingsDto as any;
+      if (
+        dtoWithLegacy.category_id !== undefined &&
+        !userSettingsDto.favorite_categories
+      ) {
+        userSettingsDto.favorite_categories = dtoWithLegacy.category_id;
+      }
+      if (
+        dtoWithLegacy.radius !== undefined &&
+        !userSettingsDto.search_radius
+      ) {
+        userSettingsDto.search_radius = dtoWithLegacy.radius;
+      }
+
       // Find existing settings or create new
       let userSettings = await this.userSettingRepository.findOne({
         where: { user_id: actualUserId },
