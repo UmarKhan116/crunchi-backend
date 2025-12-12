@@ -47,4 +47,33 @@ export class CategoriesService {
       };
     }
   }
+
+  async updateIcon(categoryId: number, filename: string) {
+    try {
+      const category = await this.categoryRepository.findOne({
+        where: { id: categoryId },
+      });
+
+      if (!category) {
+        return {
+          success: false,
+          message: 'Category not found',
+        };
+      }
+
+      category.icon = filename;
+      const savedCategory = await this.categoryRepository.save(category);
+
+      return {
+        success: true,
+        message: 'Category icon updated successfully',
+        category: savedCategory,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to update category icon: ' + error.message,
+      };
+    }
+  }
 }
