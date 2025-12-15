@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Advertisement } from '../entities/advertisement.entity';
 import { AdvertisementView } from '../entities/advertisement-view.entity';
 import { User } from '../entities/user.entity';
+import { CreateAdvertisementDto } from './dto/create-advertisement.dto';
 
 @Injectable()
 export class AdvertisementsService {
@@ -15,6 +16,37 @@ export class AdvertisementsService {
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
   ) {}
+
+  async createAdvertisement(
+    payload: CreateAdvertisementDto & {
+      file_name: string;
+      type: string;
+    },
+  ) {
+    try {
+      const advertisement = this.advertisementRepository.create({
+        title: payload.title,
+        description: payload.description,
+        is_active: true,
+        file_name: payload.file_name,
+        type: payload.type,
+        image_url: `/storage/video/${payload.file_name}`,
+      });
+
+      const saved = await this.advertisementRepository.save(advertisement);
+
+      return {
+        success: true,
+        message: 'Advertisement created successfully',
+        data: saved,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to create advertisement: ' + error.message,
+      };
+    }
+  }
 
   async getAdvertisements() {
     try {

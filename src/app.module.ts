@@ -15,6 +15,7 @@ import { SearchModule } from './search/search.module';
 import { SettingsModule } from './settings/settings.module';
 import { SessionModule } from './session/session.module';
 import { getDatabaseConfig } from './config/database.config';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { getDatabaseConfig } from './config/database.config';
     SearchModule,
     SettingsModule,
     SessionModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],

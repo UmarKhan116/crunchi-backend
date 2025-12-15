@@ -1,22 +1,5 @@
-import {
-  BadRequestException,
-  Controller,
-  Get,
-  Param,
-  ParseIntPipe,
-  Post,
-  UploadedFile,
-  UseInterceptors,
-} from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiBody,
-  ApiConsumes,
-  ApiOperation,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { Controller, Get } from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CategoriesService } from './categories.service';
 
 @ApiTags('Categories')
@@ -32,37 +15,5 @@ export class CategoriesController {
   })
   async findAll() {
     return this.categoriesService.findAll();
-  }
-
-  @Post('category/:id/icon')
-  @ApiOperation({ summary: 'Upload and set category icon' })
-  @ApiConsumes('multipart/form-data')
-  @ApiBearerAuth('JWT-auth')
-  @ApiResponse({
-    status: 201,
-    description: 'Category icon uploaded and updated successfully',
-  })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        image: {
-          type: 'string',
-          format: 'binary',
-        },
-      },
-      required: ['image'],
-    },
-  })
-  @UseInterceptors(FileInterceptor('image'))
-  async uploadCategoryIcon(
-    @Param('id', ParseIntPipe) id: number,
-    @UploadedFile() file: Express.Multer.File,
-  ) {
-    if (!file) {
-      throw new BadRequestException('No image file provided');
-    }
-
-    return this.categoriesService.updateIcon(id, file.filename);
   }
 }
