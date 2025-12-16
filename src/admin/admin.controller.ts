@@ -116,6 +116,17 @@ export class AdminController {
 
     const fileExt = extname(file.originalname).replace('.', '').toLowerCase();
 
+    // Validate file type (only images and videos allowed)
+    const allowedImageTypes = ['jpg', 'jpeg', 'png'];
+    const allowedVideoTypes = ['mp4'];
+    const allowedTypes = [...allowedImageTypes, ...allowedVideoTypes];
+
+    if (!allowedTypes.includes(fileExt)) {
+      throw new BadRequestException(
+        `Invalid file type. Allowed types: ${allowedTypes.join(', ')}`,
+      );
+    }
+
     return this.advertisementsService.createAdvertisement({
       ...body,
       file_name: file.filename,

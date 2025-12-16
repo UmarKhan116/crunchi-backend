@@ -55,10 +55,16 @@ export class AdvertisementsService {
         order: { created_at: 'DESC' },
       });
 
+      // Filter out ads that don't have required fields (type and file_name)
+      // This handles legacy ads created before these fields were added
+      const validAdvertisements = advertisements.filter(
+        (ad) => ad.type && ad.file_name,
+      );
+
       return {
         success: true,
         message: 'Advertisements retrieved successfully',
-        data: advertisements,
+        data: validAdvertisements,
       };
     } catch (error) {
       return {
