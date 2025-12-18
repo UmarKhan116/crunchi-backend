@@ -45,16 +45,20 @@ export class AdminController {
       }
 
       const token = authorization.split(' ')[1];
-      const decoded: any = this.jwtService.verify(token, {
-        secret: process.env.ADMIN_JWT_SECRET || 'crunchy-admin-secret-2024',
-      });
+      // Use JwtService without explicit secret - it uses the secret from module registration
+      const decoded: any = this.jwtService.verify(token);
 
       if (!decoded.id || decoded.role !== 'admin') {
         throw new UnauthorizedException('Invalid admin token');
       }
 
       return decoded.id;
-    } catch {
+    } catch (error) {
+      // Re-throw if it's already our custom UnauthorizedException
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      // For JWT verification errors (expired, invalid signature, etc.)
       throw new UnauthorizedException('Invalid or expired admin token');
     }
   }
