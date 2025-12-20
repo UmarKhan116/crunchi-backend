@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreatePostDto } from './dto/create-post.dto';
@@ -11,6 +11,7 @@ import { Comment } from '../entities/comment.entity';
 import { User } from '../entities/user.entity';
 import { Category } from '../entities/category.entity';
 import { Restaurant } from '../entities/restaurant.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class PostsService {
@@ -27,6 +28,8 @@ export class PostsService {
     private readonly categoryRepository: Repository<Category>,
     @InjectRepository(Restaurant)
     private readonly restaurantRepository: Repository<Restaurant>,
+    @Inject(forwardRef(() => NotificationsService))
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(createPostDto: CreatePostDto, userId?: number) {
@@ -424,6 +427,27 @@ export class PostsService {
         post.likes_count = post.likes_count + 1;
         await this.postRepository.save(post);
 
+        // Create notification for post owner (if not liking own post)
+        if (post.user_id !== actualUserId) {
+          const postOwner = await this.userRepository.findOne({
+            where: { id: post.user_id },
+          });
+          const liker = await this.userRepository.findOne({
+            where: { id: actualUserId },
+          });
+
+          if (postOwner && liker) {
+            const userName = liker.full_name || liker.user_name || 'Someone';
+            await this.notificationsService.createNotification(
+              post.user_id,
+              'like',
+              `${userName} liked your post`,
+              { post_id: post.id, actor_user_id: actualUserId },
+              actualUserId,
+            );
+          }
+        }
+
         console.log(
           '✅ Post liked successfully - new count:',
           post.likes_count,
@@ -478,6 +502,27 @@ export class PostsService {
         where: { id: savedComment.id },
         relations: ['user'],
       });
+
+      // Create notification for post owner (if not commenting on own post)
+      if (post.user_id !== actualUserId) {
+        const postOwner = await this.userRepository.findOne({
+          where: { id: post.user_id },
+        });
+        const commenter = await this.userRepository.findOne({
+          where: { id: actualUserId },
+        });
+
+        if (postOwner && commenter) {
+          const userName = commenter.full_name || commenter.user_name || 'Someone';
+          await this.notificationsService.createNotification(
+            post.user_id,
+            'comment',
+            `${userName} commented on your post`,
+            { post_id: post.id, comment_id: savedComment.id, actor_user_id: actualUserId },
+            actualUserId,
+          );
+        }
+      }
 
       return {
         success: true,

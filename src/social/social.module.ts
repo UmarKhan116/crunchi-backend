@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { SocialController } from './social.controller';
@@ -6,6 +6,7 @@ import { SocialService } from './social.service';
 import { Follow } from '../entities/follow.entity';
 import { User } from '../entities/user.entity';
 import { Post } from '../entities/post.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { Post } from '../entities/post.entity';
         'crunchy-super-secret-jwt-key-change-in-production-2024',
       signOptions: { expiresIn: '7d' },
     }),
+    forwardRef(() => NotificationsModule),
   ],
   controllers: [SocialController],
   providers: [SocialService],

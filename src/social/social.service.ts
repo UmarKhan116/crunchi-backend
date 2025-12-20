@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { FollowUserDto } from './dto/follow-user.dto';
 import { Follow } from '../entities/follow.entity';
 import { User } from '../entities/user.entity';
 import { Post } from '../entities/post.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class SocialService {
@@ -15,6 +16,8 @@ export class SocialService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Post)
     private readonly postRepository: Repository<Post>,
+    @Inject(forwardRef(() => NotificationsService))
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async followUser(followUserDto: FollowUserDto, currentUserId?: number) {
@@ -47,6 +50,27 @@ export class SocialService {
         });
 
         await this.followRepository.save(newFollow);
+
+        // Create notification for the user being followed (if not following self)
+        if (followerId !== followingId) {
+          const follower = await this.userRepository.findOne({
+            where: { id: followerId },
+          });
+          const following = await this.userRepository.findOne({
+            where: { id: followingId },
+          });
+
+          if (follower && following) {
+            const userName = follower.full_name || follower.user_name || 'Someone';
+            await this.notificationsService.createNotification(
+              followingId,
+              'follow',
+              `${userName} started following you`,
+              { follower_id: followerId, actor_user_id: followerId },
+              followerId,
+            );
+          }
+        }
 
         return {
           success: true,

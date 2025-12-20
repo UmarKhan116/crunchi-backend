@@ -35,4 +35,7 @@ export class Notification {
 
   @Column()
   user_id: number;
+
+  @Column({ nullable: true })
+  actor_user_id: number; // User who performed the action (liked, commented, followed)
 }

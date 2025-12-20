@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
+import { FcmService } from './fcm.service';
 import { Notification } from '../entities/notification.entity';
 import { User } from '../entities/user.entity';
 
@@ -17,7 +18,7 @@ import { User } from '../entities/user.entity';
     }),
   ],
   controllers: [NotificationsController],
-  providers: [NotificationsService],
-  exports: [NotificationsService],
+  providers: [NotificationsService, FcmService],
+  exports: [NotificationsService, FcmService],
 })
 export class NotificationsModule {}
