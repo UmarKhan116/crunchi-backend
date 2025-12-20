@@ -116,6 +116,17 @@ export class AuthService {
         throw new UnauthorizedException('Invalid email or password');
       }
 
+      // Get FCM token from login DTO if provided
+      const deviceToken =
+        (loginDto as any).fcm_token || (loginDto as any).device_token;
+
+      // Update device token if provided
+      if (deviceToken) {
+        user.device_token = deviceToken;
+        await this.userRepository.save(user);
+        console.log(`✅ Updated device token for user ${user.id}`);
+      }
+
       // Generate JWT token
       const token = this.jwtService.sign({
         id: user.id,

@@ -50,6 +50,7 @@ export class FcmService implements OnModuleInit {
   ): Promise<void> {
     if (!this.app) {
       console.warn('⚠️ Firebase Admin not initialized, skipping push notification');
+      console.warn('⚠️ Check FIREBASE_SERVICE_ACCOUNT in .env file');
       return;
     }
 
@@ -59,6 +60,11 @@ export class FcmService implements OnModuleInit {
     }
 
     try {
+      console.log(
+        '📤 Attempting to send FCM notification to token:',
+        deviceToken.substring(0, 20) + '...',
+      );
+
       const message: admin.messaging.Message = {
         token: deviceToken,
         notification: {
@@ -89,13 +95,19 @@ export class FcmService implements OnModuleInit {
       };
 
       const response = await admin.messaging().send(message);
-      console.log('Successfully sent push notification:', response);
+      console.log('✅ Successfully sent push notification:', response);
     } catch (error) {
-      console.error('Error sending push notification:', error);
-      // Don't throw, just log the error
-      if (error.code === 'messaging/invalid-registration-token' || 
-          error.code === 'messaging/registration-token-not-registered') {
-        console.log('Invalid or unregistered token, skipping notification');
+      console.error('❌ Error sending push notification:', error);
+      console.error('❌ Error code:', error.code);
+      console.error('❌ Error message:', error.message);
+
+      if (
+        error.code === 'messaging/invalid-registration-token' ||
+        error.code === 'messaging/registration-token-not-registered'
+      ) {
+        console.log('⚠️ Invalid or unregistered token - token may be expired');
+      } else if (error.code === 'messaging/invalid-argument') {
+        console.log('⚠️ Invalid argument - check notification payload');
       }
     }
   }

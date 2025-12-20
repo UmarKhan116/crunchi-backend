@@ -112,14 +112,30 @@ export class NotificationsService {
     data?: any,
   ) {
     try {
+      console.log(`📨 Preparing to send push notification to user ${userId}`);
+
       const user = await this.userRepository.findOne({
         where: { id: userId },
       });
 
-      if (!user || !user.device_token) {
-        console.log(`No device token found for user ${userId}`);
+      if (!user) {
+        console.warn(`⚠️ User ${userId} not found`);
         return;
       }
+
+      if (!user.device_token) {
+        console.warn(
+          `⚠️ No device token found for user ${userId} (${user.email || 'N/A'})`,
+        );
+        console.warn(
+          `⚠️ User needs to login again to update device token`,
+        );
+        return;
+      }
+
+      console.log(
+        `📤 Sending notification to user ${userId} with token: ${user.device_token.substring(0, 20)}...`,
+      );
 
       await this.fcmService.sendNotification(user.device_token, {
         title: 'Crunchy',
@@ -129,9 +145,14 @@ export class NotificationsService {
           ...data,
         },
       });
+
+      console.log(`✅ Push notification sent successfully to user ${userId}`);
     } catch (error) {
-      console.error('Failed to send push notification:', error);
-      // Don't throw error, just log it
+      console.error(
+        `❌ Failed to send push notification to user ${userId}:`,
+        error,
+      );
+      console.error('Error details:', error.message);
     }
   }
 }
