@@ -156,6 +156,7 @@ export class AuthService {
   async socialLogin(socialLoginDto: SocialLoginDto) {
     try {
       let isNewUser = false;
+      const deviceToken = socialLoginDto.device_token || socialLoginDto.fcm_token;
 
       let user = await this.userRepository.findOne({
         where: {
@@ -176,6 +177,10 @@ export class AuthService {
             // Update existing user with social info
             existingUser.social_id = socialLoginDto.social_id;
             existingUser.social_provider = socialLoginDto.provider;
+            // Update device token if provided
+            if (deviceToken) {
+              existingUser.device_token = deviceToken;
+            }
             user = await this.userRepository.save(existingUser);
           }
         }
@@ -193,9 +198,17 @@ export class AuthService {
             is_active: true,
             is_verified: true, // Social logins are considered verified
             password: await bcrypt.hash(Math.random().toString(36), 10), // Random password for social logins
+            device_token: deviceToken || null, // Save device token for new users
           });
 
           user = await this.userRepository.save(user);
+        }
+      } else {
+        // Update device token for existing users
+        if (deviceToken) {
+          user.device_token = deviceToken;
+          user = await this.userRepository.save(user);
+          console.log(`✅ Updated device token for social login user ${user.id}`);
         }
       }
 

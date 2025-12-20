@@ -14,4 +14,12 @@ export class SocialLoginDto {
 
   @IsString()
   social_id: string;
+
+  @IsOptional()
+  @IsString()
+  fcm_token?: string;
+
+  @IsOptional()
+  @IsString()
+  device_token?: string;
 }
