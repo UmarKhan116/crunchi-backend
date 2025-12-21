@@ -107,7 +107,14 @@ export class AuthController {
   @UseInterceptors(FileInterceptor('image'))
   async updateProfile(
     @Headers('authorization') authorization: string,
-    @Body() userProfileDto: any,
+    @Body(
+      new ValidationPipe({
+        skipMissingProperties: true,
+        whitelist: false,
+        forbidNonWhitelisted: false,
+      }),
+    )
+    userProfileDto: any,
     @UploadedFile() file?: Express.Multer.File,
   ) {
     const userId = this.extractUserIdFromToken(authorization);
