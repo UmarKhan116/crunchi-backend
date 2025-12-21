@@ -457,10 +457,17 @@ export class AuthService {
       delete updatedUser.reset_password_token;
       delete updatedUser.reset_password_expires;
 
+      // Add 'image' field for backwards compatibility (frontend expects 'image')
+      // Same transformation as getProfile method
+      const transformedUser = {
+        ...updatedUser,
+        image: updatedUser.profile_picture,
+      };
+
       return {
         success: true,
         message: 'Profile updated successfully',
-        user: updatedUser,
+        user: transformedUser,
       };
     } catch (error) {
       return {
