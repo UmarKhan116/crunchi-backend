@@ -156,7 +156,8 @@ export class AuthService {
   async socialLogin(socialLoginDto: SocialLoginDto) {
     try {
       let isNewUser = false;
-      const deviceToken = socialLoginDto.device_token || socialLoginDto.fcm_token;
+      const deviceToken =
+        socialLoginDto.device_token || socialLoginDto.fcm_token;
 
       let user = await this.userRepository.findOne({
         where: {
@@ -208,7 +209,9 @@ export class AuthService {
         if (deviceToken) {
           user.device_token = deviceToken;
           user = await this.userRepository.save(user);
-          console.log(`✅ Updated device token for social login user ${user.id}`);
+          console.log(
+            `✅ Updated device token for social login user ${user.id}`,
+          );
         }
       }
 
@@ -282,7 +285,14 @@ export class AuthService {
     try {
       const user = await this.userRepository.findOne({
         where: { id: userId },
-        relations: ['posts', 'posts.restaurant', 'followers', 'followers.follower', 'following', 'following.following'],
+        relations: [
+          'posts',
+          'posts.restaurant',
+          'followers',
+          'followers.follower',
+          'following',
+          'following.following',
+        ],
       });
 
       if (!user) {
@@ -334,10 +344,12 @@ export class AuthService {
       if (user.followers && user.followers.length > 0) {
         user.followers = user.followers.map((follow: any) => ({
           ...follow,
-          follows: follow.follower ? {
-            ...follow.follower,
-            image: follow.follower.profile_picture || follow.follower.image,
-          } : null,
+          follows: follow.follower
+            ? {
+                ...follow.follower,
+                image: follow.follower.profile_picture || follow.follower.image,
+              }
+            : null,
         }));
       } else {
         user.followers = [];
@@ -347,10 +359,13 @@ export class AuthService {
       if (user.following && user.following.length > 0) {
         user.following = user.following.map((follow: any) => ({
           ...follow,
-          following: follow.following ? {
-            ...follow.following,
-            image: follow.following.profile_picture || follow.following.image,
-          } : null,
+          following: follow.following
+            ? {
+                ...follow.following,
+                image:
+                  follow.following.profile_picture || follow.following.image,
+              }
+            : null,
         }));
       } else {
         user.following = [];
@@ -375,7 +390,11 @@ export class AuthService {
     }
   }
 
-  async updateProfile(userId: number, userProfileDto: UserProfileDto) {
+  async updateProfile(
+    userId: number,
+    userProfileDto: UserProfileDto,
+    file?: Express.Multer.File,
+  ) {
     try {
       const user = await this.userRepository.findOne({
         where: { id: userId },
@@ -393,10 +412,17 @@ export class AuthService {
       if (userProfileDto.bio) user.bio = userProfileDto.bio;
       if (userProfileDto.location) user.location = userProfileDto.location;
 
-      // Handle image/profile_picture
-      if (userProfileDto.image) user.profile_picture = userProfileDto.image;
-      if (userProfileDto.profile_picture)
+      // Handle image upload - if file is provided, use it; otherwise use image string from body
+      if (file) {
+        // File is already saved in storage/user folder by multer
+        // Save the filename to profile_picture
+        user.profile_picture = file.filename;
+      } else if (userProfileDto.image) {
+        // If image is provided as string (filename), use it directly
+        user.profile_picture = userProfileDto.image;
+      } else if (userProfileDto.profile_picture) {
         user.profile_picture = userProfileDto.profile_picture;
+      }
 
       // Handle password update
       if (userProfileDto.password && userProfileDto.password_confirmation) {

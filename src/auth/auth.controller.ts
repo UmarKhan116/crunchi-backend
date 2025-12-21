@@ -9,12 +9,16 @@ import {
   Request,
   Headers,
   UnauthorizedException,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiConsumes,
 } from '@nestjs/swagger';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
@@ -98,13 +102,16 @@ export class AuthController {
   @Post('update_profile')
   @ApiOperation({ summary: 'Update user profile' })
   @ApiBearerAuth('JWT-auth')
+  @ApiConsumes('multipart/form-data')
   @ApiResponse({ status: 200, description: 'Profile updated successfully' })
+  @UseInterceptors(FileInterceptor('image'))
   async updateProfile(
     @Headers('authorization') authorization: string,
     @Body() userProfileDto: any,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
     const userId = this.extractUserIdFromToken(authorization);
-    return this.authService.updateProfile(userId, userProfileDto);
+    return this.authService.updateProfile(userId, userProfileDto, file);
   }
 
   @Get('user_status/:userId')
