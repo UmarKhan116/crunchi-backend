@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { MulterModule } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+import * as fs from 'fs';
 import { Admin } from '../entities/admin.entity';
 import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
@@ -14,21 +15,28 @@ import { CategoriesModule } from '../categories/categories.module';
   imports: [
     TypeOrmModule.forFeature([Admin]),
     JwtModule.register({
-      secret:
-        process.env.ADMIN_JWT_SECRET || 'crunchy-admin-secret-2024',
+      secret: process.env.ADMIN_JWT_SECRET || 'crunchy-admin-secret-2024',
       signOptions: { expiresIn: '1d' },
     }),
     MulterModule.register({
       storage: diskStorage({
         destination: (req, file, cb) => {
           // Determine destination based on field name
+          let uploadPath: string;
           if (file.fieldname === 'image') {
-            cb(null, './storage/category');
+            uploadPath = './storage/category';
           } else if (file.fieldname === 'file') {
-            cb(null, './storage/video');
+            uploadPath = './storage/video';
           } else {
-            cb(null, './storage');
+            uploadPath = './storage';
           }
+
+          // Create directory if it doesn't exist
+          if (!fs.existsSync(uploadPath)) {
+            fs.mkdirSync(uploadPath, { recursive: true });
+          }
+
+          cb(null, uploadPath);
         },
         filename: (req, file, cb) => {
           const uniqueSuffix =
@@ -56,5 +64,3 @@ import { CategoriesModule } from '../categories/categories.module';
   providers: [AdminService],
 })
 export class AdminModule {}
-
-
