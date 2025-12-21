@@ -36,9 +36,11 @@ export class NotificationsService {
           where: uniqueActorIds.map((id) => ({ id })),
         });
         actorUsers = users.reduce((acc, user) => {
+          // Remove sensitive fields and add image field
+          const { password, reset_password_token, reset_password_expires, ...safeUser } = user;
           acc[user.id] = {
-            ...user,
-            image: user.profile_picture,
+            ...safeUser,
+            image: user.profile_picture, // Map profile_picture to image
           };
           return acc;
         }, {});
@@ -48,6 +50,11 @@ export class NotificationsService {
       const transformedNotifications = notifications.map((notification: any) => {
         // Set recipient user image (the user who receives the notification)
         if (notification.user) {
+          // Remove sensitive fields from notification.user
+          delete notification.user.password;
+          delete notification.user.reset_password_token;
+          delete notification.user.reset_password_expires;
+          // Map profile_picture to image
           notification.user.image = notification.user.profile_picture;
         }
         // Add actor user (the user who performed the action) if exists
