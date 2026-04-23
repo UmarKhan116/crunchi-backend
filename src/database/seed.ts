@@ -5,45 +5,20 @@ import * as bcrypt from 'bcryptjs';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Category names with their corresponding image filenames from category-images folder
+// 12 Broad Category names with their corresponding image filenames from category-images folder
 const categories = [
-  { name: 'Pizza', icon: 'pizza.jpg' },
-  { name: 'Breakfast', icon: 'breakfast.jpg' },
-  { name: 'Burgers', icon: 'burgers.jpg' },
-  { name: 'Chinese', icon: 'chinese.jpeg' },
-  { name: 'Mexican', icon: 'mexican.jpg' },
-  { name: 'Korean', icon: 'korean.jpg' },
-  { name: 'Steakhouses', icon: 'steakhouses.jpg' },
-  { name: 'Thai', icon: 'thai.jpg' },
-  { name: 'Seafood', icon: 'seafood.jpg' },
-  { name: 'Japanese', icon: 'japanese.jpg' },
   { name: 'Italian', icon: 'italian.jpg' },
-  { name: 'Vietnamese', icon: 'vietnamese.jpeg' },
-  { name: 'Sandwiches', icon: 'sandwiches.jpeg' },
-  { name: 'Vegetarian', icon: 'vegetarian.jpg' },
-  { name: 'Sushi Bars', icon: 'sushi-bars.jpg' },
+  { name: 'Asian', icon: 'chinese.jpeg' },
   { name: 'American', icon: 'american.jpg' },
-  { name: 'Indian', icon: 'indian.jpg' },
-  { name: 'South Indian', icon: 'south-indian.jpeg' },
-  { name: 'Dumplings', icon: 'dumplings.jpg' },
-  { name: 'Noodles', icon: 'noodles.jpeg' },
-  { name: 'Pasta', icon: 'pasta.jpeg' },
-  { name: 'Beef', icon: 'beef.jpg' },
-  { name: 'Pork', icon: 'pork.jpg' },
-  { name: 'Afghani', icon: 'afghani.jpg' },
-  { name: 'Chowmein', icon: 'chowmein.jpg' },
-  { name: 'Ramen', icon: 'ramen.jpg' },
-  { name: 'Salad', icon: 'salad.jpg' },
-  { name: 'Steak', icon: 'steak.jpg' },
-  { name: 'Shrimp', icon: 'shrimp.jpeg' },
-  { name: 'Tuna', icon: 'tuna.jpeg' },
-  { name: 'Fish', icon: 'fish.jpg' },
-  { name: 'Spaghetti', icon: 'spaghetti.jpeg' },
-  { name: 'Pie', icon: 'pie.jpeg' },
-  { name: 'Cakes', icon: 'cakes.jpeg' },
+  { name: 'Mexican/Latin', icon: 'mexican.jpg' },
+  { name: 'Seafood', icon: 'seafood.jpg' },
+  { name: 'Fast Food', icon: 'burgers.jpg' },
   { name: 'Desserts', icon: 'desserts.jpeg' },
-  { name: 'Coffee', icon: 'coffee.jpg' },
-  { name: 'Tea', icon: 'tea.jpeg' },
+  { name: 'Breakfast', icon: 'breakfast.jpg' },
+  { name: 'Mediterranean', icon: 'pizza.jpg' },
+  { name: 'Indian', icon: 'indian.jpg' },
+  { name: 'Vegetarian/Vegan', icon: 'vegetarian.jpg' },
+  { name: 'Steakhouses', icon: 'steakhouses.jpg' },
 ];
 
 async function seedCategories() {
@@ -59,13 +34,12 @@ async function seedCategories() {
   }
 
   let createdCount = 0;
-  let existingCount = 0;
   let updatedCount = 0;
   let skippedImages = 0;
   let copiedImages = 0;
 
   for (const categoryData of categories) {
-    // Check if category already exists to prevent duplicates
+    // Check if category already exists by name
     const existingCategory = await categoryRepository.findOne({
       where: { name: categoryData.name },
     });
@@ -100,6 +74,7 @@ async function seedCategories() {
     }
 
     if (!existingCategory) {
+      // Create the category
       const category = categoryRepository.create({
         name: categoryData.name,
         icon: iconFilename,
@@ -110,27 +85,19 @@ async function seedCategories() {
       );
       createdCount++;
     } else {
-      // Update existing category with icon if it doesn't have one
-      if (!existingCategory.icon && iconFilename) {
-        existingCategory.icon = iconFilename;
-        await categoryRepository.save(existingCategory);
-        console.log(
-          `✓ Updated category icon: ${categoryData.name} -> ${iconFilename}`,
-        );
-        updatedCount++;
-      } else {
-        console.log(
-          `- Category already exists: ${categoryData.name}${existingCategory.icon ? ` (has icon: ${existingCategory.icon})` : ''}`,
-        );
-      }
-      existingCount++;
+      // Update existing category with icon
+      existingCategory.icon = iconFilename;
+      await categoryRepository.save(existingCategory);
+      console.log(
+        `✓ Updated category: ${categoryData.name}${iconFilename ? ` (icon: ${iconFilename})` : ' (no icon)'}`,
+      );
+      updatedCount++;
     }
   }
 
   console.log('\n✅ Categories seeding completed!');
   console.log(`   Created: ${createdCount} categories`);
-  console.log(`   Updated: ${updatedCount} categories with icons`);
-  console.log(`   Already existed: ${existingCount} categories`);
+  console.log(`   Updated: ${updatedCount} categories`);
   console.log(`   Images copied: ${copiedImages} images`);
   console.log(`   Images skipped: ${skippedImages} categories`);
   console.log(`   Total: ${categories.length} categories`);
