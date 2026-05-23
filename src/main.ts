@@ -30,6 +30,18 @@ async function bootstrap() {
     prefix: '/storage/',
   });
 
+  // Serve legal pages (privacy policy, terms, data deletion) from public/
+  const publicDir = join(__dirname, '..', 'public');
+  app.useStaticAssets(publicDir);
+
+  // Clean URLs without .html extension for legal pages
+  const httpAdapter = app.getHttpAdapter();
+  const sendLegalPage = (file: string) => (_req: unknown, res: any) =>
+    res.sendFile(join(publicDir, file));
+  httpAdapter.get('/privacy-policy', sendLegalPage('privacy-policy.html'));
+  httpAdapter.get('/terms', sendLegalPage('terms.html'));
+  httpAdapter.get('/data-deletion', sendLegalPage('data-deletion.html'));
+
   // Swagger Documentation
   const config = new DocumentBuilder()
     .setTitle('Crunchy Food Discovery API')
