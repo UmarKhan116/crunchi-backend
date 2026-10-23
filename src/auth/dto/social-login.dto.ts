@@ -9,7 +9,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
  * New clients send a provider token (`idToken`, `identityToken` or
- * `accessToken`) that the server verifies. Old builds send `social_id`
+ * `accessToken`; Facebook sends `accessToken` or, with iOS Limited Login,
+ * `idToken`) that the server verifies. Old builds send `social_id`
  * without a token; that path only works while ALLOW_LEGACY_SOCIAL_LOGIN=true.
  */
 export class SocialLoginDto {
@@ -17,7 +18,10 @@ export class SocialLoginDto {
   @IsString()
   provider: string;
 
-  @ApiPropertyOptional({ description: 'Google ID token' })
+  @ApiPropertyOptional({
+    description:
+      'Google ID token, or the Facebook Limited Login (iOS) OIDC token',
+  })
   @IsOptional()
   @IsString()
   idToken?: string;
@@ -27,7 +31,9 @@ export class SocialLoginDto {
   @IsString()
   identityToken?: string;
 
-  @ApiPropertyOptional({ description: 'Facebook user access token' })
+  @ApiPropertyOptional({
+    description: 'Facebook user access token (classic login)',
+  })
   @IsOptional()
   @IsString()
   accessToken?: string;
