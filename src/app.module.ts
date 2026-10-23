@@ -4,6 +4,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -37,6 +38,8 @@ import { BootstrapModule } from './bootstrap/bootstrap.module';
     // Only used by routes that opt in with @UseGuards(ThrottlerGuard):
     // login, register, forgot and socialLogin get 10 requests/min per IP.
     ThrottlerModule.forRoot([{ name: 'auth', ttl: 60_000, limit: 10 }]),
+    // Push outbox worker (src/notifications/push/push-outbox.worker.ts).
+    ScheduleModule.forRoot(),
     AuthCommonModule,
     AuthModule,
     CategoriesModule,

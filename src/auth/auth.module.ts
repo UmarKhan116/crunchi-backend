@@ -10,10 +10,12 @@ import { AuthService } from './auth.service';
 import { SocialTokenVerifier } from './social/social-token-verifier.service';
 import { User } from '../entities/user.entity';
 import { UserSetting } from '../entities/user-setting.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([User, UserSetting]),
+    NotificationsModule,
     JwtModule.register({
       secret:
         process.env.JWT_SECRET ||

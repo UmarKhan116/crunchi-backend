@@ -13,6 +13,19 @@ import * as path from 'path';
 import { DataSource } from 'typeorm';
 import { testDataSource } from './test-data-source';
 
+// Never talk to Firebase from tests (the push worker is off here anyway).
+jest.mock('firebase-admin', () => {
+  const app = {
+    messaging: () => ({ sendEachForMulticast: jest.fn() }),
+  };
+  return {
+    apps: [],
+    app: () => app,
+    initializeApp: () => app,
+    credential: { cert: () => ({}), applicationDefault: () => ({}) },
+  };
+});
+
 const describeDb = process.env.TEST_DB_PORT ? describe : describe.skip;
 
 const ORIGIN = { lat: 33.7222, lng: -116.3745 };
@@ -167,6 +180,7 @@ describeDb(
 
       process.env.GOOGLE_PLACES_API_KEY = 'test-places-key';
       process.env.PUBLIC_BASE_URL = 'https://api.test';
+      process.env.PUSH_WORKER_ENABLED = 'false';
       delete process.env.ALLOW_LEGACY_SOCIAL_LOGIN;
 
       fetchMock = jest

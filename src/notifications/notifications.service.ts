@@ -1,19 +1,24 @@
-import { Injectable, Inject, forwardRef } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Notification } from '../entities/notification.entity';
 import { User } from '../entities/user.entity';
-import { FcmService } from './fcm.service';
 import { toSafeUser } from '../common/utils/user-sanitizer';
+import { PUSH_PRODUCER, PushProducer, PushType } from './push/push.types';
+import { linkFor } from './push/push-message';
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(
     @InjectRepository(Notification)
     private readonly notificationRepository: Repository<Notification>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-    private readonly fcmService: FcmService,
+    private readonly dataSource: DataSource,
+    @Inject(PUSH_PRODUCER)
+    private readonly push: PushProducer,
   ) {}
 
   async getUserNotifications(userId?: number) {
@@ -81,6 +86,13 @@ export class NotificationsService {
     });
   }
 
+  /**
+   * Saves the notification and queues its push in one transaction, then
+   * returns; PushOutboxWorker sends it. Never notifies the actor themselves.
+   * `data` keeps the legacy snake_case keys (post_id, actor_user_id, ...)
+   * that getUserNotification and old builds read; the contract fields and
+   * `link` are added here.
+   */
   async createNotification(
     userId: number,
     type: string,
@@ -88,81 +100,55 @@ export class NotificationsService {
     data?: any,
     actorUserId?: number,
   ) {
+    if (actorUserId && Number(actorUserId) === Number(userId)) {
+      return { success: true, message: 'Notification skipped (self)' };
+    }
     try {
-      const notification = this.notificationRepository.create({
-        user_id: userId,
-        type,
-        message,
-        data,
-        actor_user_id: actorUserId || null,
+      const postId = data?.post_id ?? null;
+      const placeId = data?.place_id ?? null;
+      const link =
+        data?.link ??
+        linkFor(type, { postId, placeId, userId: actorUserId ?? null });
+      const stored = { ...(data ?? {}), ...(link ? { link } : {}) };
+
+      await this.dataSource.transaction(async (em) => {
+        const notification = await em.save(
+          em.create(Notification, {
+            user_id: userId,
+            type,
+            message,
+            data: stored,
+            actor_user_id: actorUserId || null,
+          }),
+        );
+        await this.push.enqueue(
+          {
+            userId,
+            type: type as PushType,
+            body: message,
+            data: {
+              ...stored,
+              notificationId: notification.id,
+              postId,
+              userId: actorUserId ?? null,
+              placeId,
+              link,
+            },
+          },
+          em,
+        );
       });
-
-      await this.notificationRepository.save(notification);
-
-      // Send push notification if user has device token
-      await this.sendPushNotification(userId, message, type, data);
 
       return {
         success: true,
         message: 'Notification created successfully',
       };
     } catch (error) {
-      console.error('Failed to create notification:', error);
+      this.logger.error(`Failed to create notification: ${error?.message}`);
       return {
         success: false,
         message: 'Failed to create notification: ' + error.message,
       };
-    }
-  }
-
-  private async sendPushNotification(
-    userId: number,
-    message: string,
-    type: string,
-    data?: any,
-  ) {
-    try {
-      console.log(`📨 Preparing to send push notification to user ${userId}`);
-
-      const user = await this.userRepository.findOne({
-        where: { id: userId },
-      });
-
-      if (!user) {
-        console.warn(`⚠️ User ${userId} not found`);
-        return;
-      }
-
-      if (!user.device_token) {
-        console.warn(
-          `⚠️ No device token found for user ${userId} (${user.email || 'N/A'})`,
-        );
-        console.warn(
-          `⚠️ User needs to login again to update device token`,
-        );
-        return;
-      }
-
-      console.log(
-        `📤 Sending notification to user ${userId} with token: ${user.device_token.substring(0, 20)}...`,
-      );
-
-      await this.fcmService.sendNotification(user.device_token, {
-        title: 'Crunchy',
-        body: message,
-        data: {
-          type,
-          ...data,
-        },
-      });
-
-      console.log(`✅ Push notification sent successfully to user ${userId}`);
-    } catch (error) {
-      console.error(
-        `❌ Failed to send push notification to user ${userId}:`,
-        error,
-      );
-      console.error('Error details:', error.message);
     }
   }
 }

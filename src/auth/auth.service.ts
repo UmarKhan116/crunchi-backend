@@ -19,6 +19,7 @@ import { UserProfileDto } from './dto/user-profile.dto';
 import { User } from '../entities/user.entity';
 import { UserSetting } from '../entities/user-setting.entity';
 import { toSafeUser } from '../common/utils/user-sanitizer';
+import { DeviceTokensService } from '../notifications/device-tokens.service';
 import {
   SocialTokenVerifier,
   VerifiedSocialIdentity,
@@ -34,7 +35,21 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly socialVerifier: SocialTokenVerifier,
     private readonly config: ConfigService,
+    private readonly deviceTokens: DeviceTokensService,
   ) {}
+
+  /**
+   * Old builds only send their FCM token with login/register; keep it in
+   * device_tokens too so pushes reach them. Never fails the login.
+   */
+  private async rememberDeviceToken(userId: number, token?: string | null) {
+    if (!userId || typeof token !== 'string' || !token.trim()) return;
+    try {
+      await this.deviceTokens.register(userId, token);
+    } catch (error) {
+      console.warn(`device token not stored for user ${userId}: ${error?.message}`);
+    }
+  }
 
   async register(registerDto: RegisterDto) {
     try {
@@ -73,6 +88,7 @@ export class AuthService {
       });
 
       const savedUser = await this.userRepository.save(newUser);
+      await this.rememberDeviceToken(savedUser.id, deviceToken);
 
       // Generate JWT token
       const token = this.jwtService.sign({
@@ -134,6 +150,7 @@ export class AuthService {
       if (deviceToken) {
         user.device_token = deviceToken;
         await this.userRepository.save(user);
+        await this.rememberDeviceToken(user.id, deviceToken);
         console.log(`✅ Updated device token for user ${user.id}`);
       }
 
@@ -253,6 +270,7 @@ export class AuthService {
 
     if (deviceToken) user.device_token = deviceToken;
     user = await this.userRepository.save(user);
+    await this.rememberDeviceToken(user.id, deviceToken);
 
     const token = this.jwtService.sign({ id: user.id, email: user.email });
     delete user.password;
@@ -330,6 +348,7 @@ export class AuthService {
           );
         }
       }
+      await this.rememberDeviceToken(user.id, deviceToken);
 
       // Generate JWT token
       const token = this.jwtService.sign({

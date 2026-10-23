@@ -1,180 +1,96 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import * as admin from 'firebase-admin';
 
+/** FCM error codes meaning the token will never work again: delete it. */
+export const DEAD_TOKEN_ERRORS = new Set([
+  'messaging/registration-token-not-registered',
+  'messaging/invalid-registration-token',
+]);
+
+/** sendEachForMulticast accepts at most 500 tokens per call. */
+const MULTICAST_LIMIT = 500;
+
+export type FcmMessage = Omit<admin.messaging.MulticastMessage, 'tokens'>;
+
+export interface FcmSendResult {
+  successCount: number;
+  failureCount: number;
+  /** Tokens FCM rejected as unregistered or invalid. */
+  deadTokens: string[];
+  /** Error codes of the other (possibly temporary) failures. */
+  errors: string[];
+}
+
+/**
+ * Thin wrapper over firebase-admin messaging. Only PushSender calls it, from
+ * the outbox worker, never from a request.
+ */
 @Injectable()
 export class FcmService implements OnModuleInit {
+  private readonly logger = new Logger(FcmService.name);
   private app: admin.app.App | null = null;
 
   onModuleInit() {
-    // Initialize Firebase Admin if not already initialized
-    if (!admin.apps.length) {
-      try {
-        // Try to initialize with service account from environment
-        const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
-        
-        if (serviceAccount) {
-          const serviceAccountJson = JSON.parse(serviceAccount);
-          this.app = admin.initializeApp({
-            credential: admin.credential.cert(serviceAccountJson),
-          });
-          console.log('✅ Firebase Admin initialized with service account');
-        } else {
-          // Try to initialize with default credentials (for Google Cloud environments)
-          try {
-            this.app = admin.initializeApp({
-              credential: admin.credential.applicationDefault(),
-            });
-            console.log('✅ Firebase Admin initialized with default credentials');
-          } catch (defaultError) {
-            console.warn('⚠️ Firebase Admin not initialized - push notifications disabled');
-            console.warn('Set FIREBASE_SERVICE_ACCOUNT environment variable to enable');
-          }
-        }
-      } catch (error) {
-        console.error('❌ Firebase Admin initialization error:', error);
-        console.warn('⚠️ Push notifications will not work without Firebase credentials');
-      }
-    } else {
+    if (admin.apps.length) {
       this.app = admin.app();
-      console.log('✅ Firebase Admin already initialized');
-    }
-  }
-
-  async sendNotification(
-    deviceToken: string,
-    notification: {
-      title: string;
-      body: string;
-      data?: any;
-    },
-  ): Promise<void> {
-    if (!this.app) {
-      console.warn('⚠️ Firebase Admin not initialized, skipping push notification');
-      console.warn('⚠️ Check FIREBASE_SERVICE_ACCOUNT in .env file');
       return;
     }
-
-    if (!deviceToken || deviceToken.trim() === '') {
-      console.warn('⚠️ Empty device token provided, skipping push notification');
-      return;
-    }
-
     try {
-      console.log(
-        '📤 Attempting to send FCM notification to token:',
-        deviceToken.substring(0, 20) + '...',
+      const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
+      this.app = admin.initializeApp({
+        credential: serviceAccount
+          ? admin.credential.cert(JSON.parse(serviceAccount))
+          : // Google Cloud environments provide default credentials.
+            admin.credential.applicationDefault(),
+      });
+      this.logger.log(
+        `Firebase Admin initialised (${serviceAccount ? 'service account' : 'default credentials'})`,
       );
-
-      const message: admin.messaging.Message = {
-        token: deviceToken,
-        notification: {
-          title: notification.title,
-          body: notification.body,
-        },
-        data: notification.data
-          ? Object.keys(notification.data).reduce((acc, key) => {
-              acc[key] = String(notification.data[key]);
-              return acc;
-            }, {} as Record<string, string>)
-          : undefined,
-        android: {
-          priority: 'high',
-          notification: {
-            sound: 'default',
-            channelId: 'channel-id',
-          },
-        },
-        apns: {
-          payload: {
-            aps: {
-              sound: 'default',
-              badge: 1,
-            },
-          },
-        },
-      };
-
-      const response = await admin.messaging().send(message);
-      console.log('✅ Successfully sent push notification:', response);
     } catch (error) {
-      console.error('❌ Error sending push notification:', error);
-      console.error('❌ Error code:', error.code);
-      console.error('❌ Error message:', error.message);
-
-      if (
-        error.code === 'messaging/invalid-registration-token' ||
-        error.code === 'messaging/registration-token-not-registered'
-      ) {
-        console.log('⚠️ Invalid or unregistered token - token may be expired');
-      } else if (error.code === 'messaging/invalid-argument') {
-        console.log('⚠️ Invalid argument - check notification payload');
-      }
+      this.app = null;
+      this.logger.warn(
+        `Firebase Admin not initialised, push disabled: ${error?.message}. ` +
+          'Set FIREBASE_SERVICE_ACCOUNT to enable it.',
+      );
     }
   }
 
-  async sendNotificationToMultiple(
-    deviceTokens: string[],
-    notification: {
-      title: string;
-      body: string;
-      data?: any;
-    },
-  ): Promise<void> {
-    if (!this.app) {
-      console.warn('⚠️ Firebase Admin not initialized, skipping push notification');
-      return;
-    }
+  get enabled(): boolean {
+    return !!this.app;
+  }
 
-    if (!deviceTokens || deviceTokens.length === 0) {
-      console.warn('⚠️ No device tokens provided, skipping push notification');
-      return;
+  /**
+   * Sends one message to every token (chunks of 500). Throws only when FCM
+   * cannot be reached at all; per-token failures are reported in the result.
+   */
+  async sendMulticast(
+    tokens: string[],
+    message: FcmMessage,
+  ): Promise<FcmSendResult> {
+    const result: FcmSendResult = {
+      successCount: 0,
+      failureCount: 0,
+      deadTokens: [],
+      errors: [],
+    };
+    if (!this.app) throw new Error('Firebase Admin is not initialised');
+    const valid = [...new Set(tokens.filter((t) => t && t.trim()))];
+    for (let i = 0; i < valid.length; i += MULTICAST_LIMIT) {
+      const chunk = valid.slice(i, i + MULTICAST_LIMIT);
+      const batch = await this.app
+        .messaging()
+        .sendEachForMulticast({ ...message, tokens: chunk });
+      batch.responses.forEach((response, index) => {
+        if (response.success) {
+          result.successCount++;
+          return;
+        }
+        result.failureCount++;
+        const code = response.error?.code ?? 'unknown';
+        if (DEAD_TOKEN_ERRORS.has(code)) result.deadTokens.push(chunk[index]);
+        else result.errors.push(code);
+      });
     }
-
-    // Filter out empty tokens
-    const validTokens = deviceTokens.filter((token) => token && token.trim() !== '');
-    if (validTokens.length === 0) {
-      console.warn('⚠️ No valid device tokens found, skipping push notification');
-      return;
-    }
-
-    try {
-      const message: admin.messaging.MulticastMessage = {
-        tokens: validTokens,
-        notification: {
-          title: notification.title,
-          body: notification.body,
-        },
-        data: notification.data
-          ? Object.keys(notification.data).reduce((acc, key) => {
-              acc[key] = String(notification.data[key]);
-              return acc;
-            }, {} as Record<string, string>)
-          : undefined,
-        android: {
-          priority: 'high',
-          notification: {
-            sound: 'default',
-            channelId: 'channel-id',
-          },
-        },
-        apns: {
-          payload: {
-            aps: {
-              sound: 'default',
-              badge: 1,
-            },
-          },
-        },
-      };
-
-      const response = await admin.messaging().sendEachForMulticast(message);
-      console.log(`Successfully sent ${response.successCount} push notifications`);
-      if (response.failureCount > 0) {
-        console.log(`Failed to send ${response.failureCount} push notifications`);
-      }
-    } catch (error) {
-      console.error('Error sending multicast push notification:', error);
-    }
+    return result;
   }
 }
-
