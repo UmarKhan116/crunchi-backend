@@ -2,29 +2,14 @@ import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { join } from 'path';
-import { configureApp } from './app.setup';
+import { configureApp, configureStaticAssets } from './app.setup';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   configureApp(app);
 
-  // Serve static files for uploaded images
-  app.useStaticAssets(join(__dirname, '..', 'storage'), {
-    prefix: '/storage/',
-  });
-
-  // Serve legal pages (privacy policy, terms, data deletion) from public/
-  const publicDir = join(__dirname, '..', 'public');
-  app.useStaticAssets(publicDir);
-
-  // Clean URLs without .html extension for legal pages
-  const httpAdapter = app.getHttpAdapter();
-  const sendLegalPage = (file: string) => (_req: unknown, res: any) =>
-    res.sendFile(join(publicDir, file));
-  httpAdapter.get('/privacy-policy', sendLegalPage('privacy-policy.html'));
-  httpAdapter.get('/terms', sendLegalPage('terms.html'));
-  httpAdapter.get('/data-deletion', sendLegalPage('data-deletion.html'));
+  // /storage/ uploads, public/ legal pages and their clean URLs.
+  configureStaticAssets(app);
 
   // Swagger Documentation
   const config = new DocumentBuilder()

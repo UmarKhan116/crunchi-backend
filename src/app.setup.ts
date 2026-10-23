@@ -1,6 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
 import {
   ApiExceptionFilter,
   validationExceptionFactory,
@@ -38,6 +39,31 @@ export function configureApp(app: NestExpressApplication) {
     credentials: true,
     allowedHeaders: 'Content-Type,Authorization,Accept',
   });
+}
+
+/**
+ * Static files and legal pages (main.ts and the HTTP tests). Express runs
+ * these before Nest's routes, so nothing here may claim the share paths
+ * (/p, /r, /u, /.well-known): public/ has no such folders, and
+ * express.static ignores dot-folders such as .well-known.
+ */
+export function configureStaticAssets(app: NestExpressApplication) {
+  // Uploaded images and videos
+  app.useStaticAssets(join(__dirname, '..', 'storage'), {
+    prefix: '/storage/',
+  });
+
+  // Legal pages (privacy policy, terms, data deletion) from public/
+  const publicDir = join(__dirname, '..', 'public');
+  app.useStaticAssets(publicDir, { redirect: false });
+
+  // Clean URLs without .html extension for legal pages
+  const httpAdapter = app.getHttpAdapter();
+  const sendLegalPage = (file: string) => (_req: unknown, res: any) =>
+    res.sendFile(join(publicDir, file));
+  httpAdapter.get('/privacy-policy', sendLegalPage('privacy-policy.html'));
+  httpAdapter.get('/terms', sendLegalPage('terms.html'));
+  httpAdapter.get('/data-deletion', sendLegalPage('data-deletion.html'));
 }
 
 export function parseCorsOrigins(value?: string): string | string[] {

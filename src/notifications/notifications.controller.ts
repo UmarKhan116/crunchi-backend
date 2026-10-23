@@ -1,10 +1,13 @@
 import {
+  BadRequestException,
   Controller,
   Get,
+  HttpCode,
   Post,
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -19,6 +22,9 @@ import { Repository } from 'typeorm';
 import { NotificationsService } from './notifications.service';
 import { DeviceTokensService } from './device-tokens.service';
 import { RegisterDeviceTokenDto } from './dto/device-token.dto';
+import { MarkReadDto } from './dto/mark-read.dto';
+import { CursorQueryDto, pageLimit } from '../common/dto/cursor-query.dto';
+import { BaseUrl } from '../common/utils/public-url';
 import { User } from '../entities/user.entity';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -44,6 +50,60 @@ export class NotificationsController {
   })
   async getUserNotifications(@CurrentUser('id') userId: number) {
     return this.notificationsService.getUserNotifications(userId);
+  }
+
+  @Get('notifications')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'My notifications, newest first',
+    description: 'data: { items: Notification[]; nextCursor }',
+  })
+  @ApiResponse({ status: 200, description: 'Notifications' })
+  async list(
+    @CurrentUser('id') userId: number,
+    @Query() q: CursorQueryDto,
+    @BaseUrl() baseUrl: string,
+  ) {
+    return ok(
+      await this.notificationsService.list(
+        userId,
+        q.cursor,
+        pageLimit(q.limit),
+        baseUrl,
+      ),
+    );
+  }
+
+  @Get('notifications/unread-count')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Unread notifications',
+    description: 'data: { count }',
+  })
+  @ApiResponse({ status: 200, description: 'Count' })
+  async unreadCount(@CurrentUser('id') userId: number) {
+    return ok({ count: await this.notificationsService.countUnread(userId) });
+  }
+
+  @Post('notifications/read')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Mark notifications read',
+    description:
+      'Body { ids: string[] } or { all: true }. data: { count } = unread after',
+  })
+  @ApiResponse({ status: 200, description: 'Unread count after' })
+  async markRead(@CurrentUser('id') userId: number, @Body() body: MarkReadDto) {
+    if (!body.all && !body.ids?.length) {
+      throw new BadRequestException('Send ids or all: true');
+    }
+    return ok({
+      count: await this.notificationsService.markRead(userId, body),
+    });
   }
 
   @Post('device-tokens')

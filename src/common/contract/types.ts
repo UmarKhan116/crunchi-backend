@@ -96,3 +96,45 @@ export type Ad = {
 export type FeedItem =
   | { kind: 'place'; id: string; place: PlaceSummary }
   | { kind: 'post'; id: string; post: ContractPost };
+
+// ---- Milestone 2 ---------------------------------------------------------
+
+export type NotificationType = 'like' | 'comment' | 'follow' | 'broadcast';
+
+export type ContractNotification = {
+  id: string;
+  type: NotificationType;
+  message: string;
+  actor: PublicUser | null;
+  postId: string | null;
+  placeId: string | null;
+  link: string | null;
+  isRead: boolean;
+  createdAt: string;
+  thumbnailUrl: string | null;
+};
+
+export type ContractComment = {
+  id: string;
+  text: string;
+  user: PublicUser;
+  createdAt: string;
+  canDelete: boolean;
+};
+
+/** GET /api/users/:userId */
+export type UserProfile = PublicUser & {
+  bio: string | null;
+  followersCount: number;
+  followingCount: number;
+  postsCount: number;
+  isFollowing: boolean;
+  isMe: boolean;
+};
+
+/** GET /api/users/search items */
+export type UserSearchItem = PublicUser & {
+  followersCount: number;
+  postsCount: number;
+  isFollowing: boolean;
+};
