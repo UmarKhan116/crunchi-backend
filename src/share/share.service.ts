@@ -136,12 +136,15 @@ export class ShareService {
     }
     if (!place) return this.render(null);
     const ref = place.photos?.[0]?.photo_reference;
+    const category =
+      (await this.places.categoryLabelFor(placeId).catch(() => null)) ??
+      primaryTypeLabel(place.types);
     return this.render({
       path: `/r/${placeId}`,
       title: place.name || 'A restaurant on Crunchii',
       description: ratingLine(
         place.rating ?? null,
-        primaryTypeLabel(place.types),
+        category,
         cityOf(place),
       ),
       imageUrl: ref ? photoProxyUrl(baseUrl, ref, OG_PHOTO_WIDTH) : null,

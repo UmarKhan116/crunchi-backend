@@ -179,6 +179,9 @@ export class FeedService {
       ),
       ctx.userId,
     );
+    this.places.rememberCategoryLabels(
+      shownPlaces.map(({ item, label }) => ({ placeId: item.place_id, label })),
+    );
     const summaryById = new Map<string, PlaceSummary>(
       summaries.map((s) => [s.placeId, s]),
     );

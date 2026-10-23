@@ -91,6 +91,9 @@ const slimPage = (page: GooglePage): GooglePage => ({
  * and GooglePlacesClient. Also adds the Crunchii side of a place (likes,
  * favourites, stored opening hours).
  */
+const CATEGORY_LABEL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const categoryLabelKey = (placeId: string) => `catlabel:${placeId}`;
+
 @Injectable()
 export class PlacesService {
   constructor(
@@ -194,6 +197,7 @@ export class PlacesService {
     const summary = toPlaceSummary(place, {
       baseUrl: ctx.baseUrl,
       maxPhotos: DETAILS_PHOTOS,
+      categoryLabel: await this.categoryLabelFor(placeId),
       origin,
     });
     const [enriched] = await this.enrich([summary], ctx.userId);
@@ -204,6 +208,33 @@ export class PlacesService {
       mapsUrl: place.url ?? null,
       crunchiiReviewsCount: await this.postQuery.countByPlaceId(placeId),
     };
+  }
+
+  /**
+   * The feed knows which Crunchii category matched a place ("Italian"); Place
+   * Details only has Google's generic type ("Restaurant"). Remember the label
+   * so details and share pages show the same category as the feed card.
+   */
+  async categoryLabelFor(placeId: string): Promise<string | null> {
+    const hit = await this.cache
+      .get<{ label: string }>(categoryLabelKey(placeId))
+      .catch(() => null);
+    return hit?.label ?? null;
+  }
+
+  rememberCategoryLabels(pairs: { placeId: string; label?: string | null }[]) {
+    const writes = pairs
+      .filter((p) => p.placeId && p.label)
+      .map((p) =>
+        this.cache.set(
+          categoryLabelKey(p.placeId),
+          'category',
+          { label: p.label },
+          CATEGORY_LABEL_TTL_MS,
+        ),
+      );
+    // Best effort: without the label, details fall back to Google's type.
+    Promise.all(writes).catch(() => undefined);
   }
 
   /** Keep the latest hours on our restaurant rows (for feeds after the cache expires). */

@@ -8,7 +8,8 @@ export type CacheKind =
   | 'details'
   | 'text'
   | 'autocomplete'
-  | 'geocode';
+  | 'geocode'
+  | 'category';
 
 /**
  * Read-through cache in Postgres (`place_cache`). Expired rows are ignored on
