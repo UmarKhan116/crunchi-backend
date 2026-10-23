@@ -6,10 +6,12 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 
 @Entity('sessions')
+@Index('idx_sessions_user_id', ['user_id'])
 export class Session {
   @PrimaryGeneratedColumn()
   id: number;
@@ -42,7 +44,7 @@ export class Session {
   updated_at: Date;
 
   // Relations
-  @ManyToOne(() => User, (user) => user.sessions)
+  @ManyToOne(() => User, (user) => user.sessions, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: User;
 

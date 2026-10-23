@@ -7,6 +7,7 @@ import {
   ManyToOne,
   OneToMany,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Comment } from './comment.entity';
@@ -14,7 +15,15 @@ import { Like } from './like.entity';
 import { Category } from './category.entity';
 import { Restaurant } from './restaurant.entity';
 
+// Indexes and ON DELETE CASCADE are declared here so `migration:generate`
+// keeps them (1777064415555 dropped them because the entities did not).
 @Entity('posts')
+@Index('idx_posts_user_id', ['user_id'])
+@Index('idx_posts_category_id', ['category_id'])
+@Index('idx_posts_restaurant_id', ['restaurant_id'])
+@Index('idx_posts_created_at', ['created_at'])
+// Bounding-box prefilter for the distance queries (index-distance, /feed).
+@Index('idx_posts_lat_lng', ['latitude', 'longitude'])
 export class Post {
   @PrimaryGeneratedColumn()
   id: number;
@@ -53,7 +62,7 @@ export class Post {
   updated_at: Date;
 
   // Relations
-  @ManyToOne(() => User, (user) => user.posts)
+  @ManyToOne(() => User, (user) => user.posts, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: User;
 

@@ -13,6 +13,11 @@ import { Category } from '../entities/category.entity';
 import { Restaurant } from '../entities/restaurant.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { toSafeUser } from '../common/utils/user-sanitizer';
+import { PostQueryService } from './post-query.service';
+
+/** index-distance pagination when the (legacy) client sends none. */
+const INDEX_DISTANCE_DEFAULT_LIMIT = 50;
+const INDEX_DISTANCE_MAX_LIMIT = 100;
 
 @Injectable()
 export class PostsService {
@@ -31,6 +36,7 @@ export class PostsService {
     private readonly restaurantRepository: Repository<Restaurant>,
     @Inject(forwardRef(() => NotificationsService))
     private readonly notificationsService: NotificationsService,
+    private readonly postQuery: PostQueryService,
   ) {}
 
   async create(createPostDto: CreatePostDto, userId?: number) {
@@ -270,15 +276,43 @@ export class PostsService {
     }
   }
 
+  /**
+   * POST /api/index-distance (legacy). Same response shape as before, but
+   * filtered and paginated in SQL instead of loading every post.
+   * Body: latitude, longitude, radius (km, default 40), page (1-based) or
+   * offset, limit (default 50, max 100).
+   */
   async getPostsByLocation(locationDto: any) {
     try {
-      const { latitude, longitude, radius = 40 } = locationDto;
+      const latitude = toNumber(locationDto?.latitude);
+      const longitude = toNumber(locationDto?.longitude);
+      const radiusKm = toNumber(locationDto?.radius) ?? 40;
+      const limit = Math.min(
+        Math.max(
+          Math.trunc(toNumber(locationDto?.limit) ?? INDEX_DISTANCE_DEFAULT_LIMIT),
+          1,
+        ),
+        INDEX_DISTANCE_MAX_LIMIT,
+      );
+      const page = Math.max(Math.trunc(toNumber(locationDto?.page) ?? 1), 1);
+      const offset = Math.max(
+        Math.trunc(toNumber(locationDto?.offset) ?? (page - 1) * limit),
+        0,
+      );
 
-      // Get all active posts with relations
-      console.log('🔍 Fetching posts with likes and comments...');
-      const posts = await this.postRepository.find({
-        where: { is_active: true },
-        relations: [
+      // One extra row tells us whether another page exists.
+      const rows = await this.postQuery.findNearbyIds({
+        lat: latitude,
+        lng: longitude,
+        radiusM: radiusKm * 1000,
+        includeUnlocated: true,
+        offset,
+        limit: limit + 1,
+      });
+      const hasMore = rows.length > limit;
+      const posts = await this.postQuery.loadInOrder(
+        rows.slice(0, limit).map((r) => r.id),
+        [
           'user',
           'category',
           'restaurant',
@@ -287,37 +321,10 @@ export class PostsService {
           'comments',
           'comments.user',
         ],
-        order: { created_at: 'DESC' },
-      });
-
-      console.log(`📊 Found ${posts.length} posts`);
-      if (posts.length > 0) {
-        console.log(`📊 Sample post likes count:`, posts[0].likes?.length || 0);
-        console.log(
-          `📊 Sample post comments count:`,
-          posts[0].comments?.length || 0,
-        );
-      }
-
-      // Filter posts by distance if location provided
-      let filteredPosts = posts;
-      if (latitude && longitude) {
-        filteredPosts = posts.filter((post) => {
-          if (!post.latitude || !post.longitude) return true;
-
-          const distance = this.calculateDistance(
-            latitude,
-            longitude,
-            post.latitude,
-            post.longitude,
-          );
-
-          return distance <= radius;
-        });
-      }
+      );
 
       // Transform posts to match frontend expectations
-      const transformedPosts = filteredPosts.map((post: any) => {
+      const transformedPosts = posts.map((post: any) => {
         // Transform images array to file array format
         const file = [];
         if (post.images && Array.isArray(post.images)) {
@@ -339,7 +346,10 @@ export class PostsService {
         return {
           ...post,
           user: toSafeUser(post.user),
-          likes: (post.likes || []).map((l) => ({ ...l, user: toSafeUser(l.user) })),
+          likes: (post.likes || []).map((l) => ({
+            ...l,
+            user: toSafeUser(l.user),
+          })),
           comments: (post.comments || []).map((c) => ({
             ...c,
             user: toSafeUser(c.user),
@@ -355,6 +365,7 @@ export class PostsService {
         success: true,
         message: 'Posts retrieved successfully',
         post: transformedPosts,
+        pagination: { page, offset, limit, hasMore },
       };
     } catch (error) {
       return {
@@ -403,8 +414,8 @@ export class PostsService {
           existingLike.id,
         );
         await this.likeRepository.remove(existingLike);
-        post.likes_count = Math.max(0, post.likes_count - 1);
-        await this.postRepository.save(post);
+        const { likesCount } = await this.postQuery.refreshCounts(post.id);
+        post.likes_count = likesCount;
 
         console.log('✅ Post unliked - new count:', post.likes_count);
         return {
@@ -423,8 +434,8 @@ export class PostsService {
         const savedLike = await this.likeRepository.save(newLike);
         console.log('💾 Like saved to DB - Like ID:', savedLike.id);
 
-        post.likes_count = post.likes_count + 1;
-        await this.postRepository.save(post);
+        const { likesCount } = await this.postQuery.refreshCounts(post.id);
+        post.likes_count = likesCount;
 
         // Create notification for post owner (if not liking own post)
         if (post.user_id !== actualUserId) {
@@ -492,9 +503,8 @@ export class PostsService {
 
       const savedComment = await this.commentRepository.save(newComment);
 
-      // Update comments count
-      post.comments_count = post.comments_count + 1;
-      await this.postRepository.save(post);
+      // Recount in SQL (atomic) instead of read-modify-write.
+      await this.postQuery.refreshCounts(post.id);
 
       // Load user data for response
       const commentWithUser = await this.commentRepository.findOne({
@@ -587,32 +597,10 @@ export class PostsService {
       };
     }
   }
+}
 
-  private calculateDistance(
-    lat1: number,
-    lon1: number,
-    lat2: number,
-    lon2: number,
-  ): number {
-    // Haversine formula to calculate distance in kilometers
-    const R = 6371; // Earth's radius in km
-    const dLat = this.toRad(lat2 - lat1);
-    const dLon = this.toRad(lon2 - lon1);
-
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(this.toRad(lat1)) *
-        Math.cos(this.toRad(lat2)) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const distance = R * c;
-
-    return distance;
-  }
-
-  private toRad(degrees: number): number {
-    return degrees * (Math.PI / 180);
-  }
+function toNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }

@@ -26,14 +26,16 @@ export class AdvertisementView {
   created_at: Date;
 
   // Relations
-  @ManyToOne(() => Advertisement, (advertisement) => advertisement.views)
+  @ManyToOne(() => Advertisement, (advertisement) => advertisement.views, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'advertisement_id' })
   advertisement: Advertisement;
 
   @Column()
   advertisement_id: number;
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: User;
 

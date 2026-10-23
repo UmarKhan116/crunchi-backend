@@ -45,7 +45,7 @@ export class UserSetting {
   updated_at: Date;
 
   // Relations
-  @OneToOne(() => User)
+  @OneToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: User;
 

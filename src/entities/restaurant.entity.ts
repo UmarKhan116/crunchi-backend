@@ -5,11 +5,13 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  Index,
 } from 'typeorm';
 import { Post } from './post.entity';
 import { Favorite } from './favorite.entity';
 
 @Entity('restaurants')
+@Index('idx_restaurants_google_place_id', ['google_place_id'])
 export class Restaurant {
   @PrimaryGeneratedColumn()
   id: number;

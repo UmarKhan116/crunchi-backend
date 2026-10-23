@@ -5,10 +5,13 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 
 @Entity('notifications')
+@Index('idx_notifications_user_id', ['user_id'])
+@Index('idx_notifications_actor_user_id', ['actor_user_id'])
 export class Notification {
   @PrimaryGeneratedColumn()
   id: number;
@@ -29,7 +32,7 @@ export class Notification {
   created_at: Date;
 
   // Relations
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: User;
 
