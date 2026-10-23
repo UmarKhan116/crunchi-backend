@@ -7,6 +7,7 @@ import { extname } from 'path';
 import * as fs from 'fs';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { SocialTokenVerifier } from './social/social-token-verifier.service';
 import { User } from '../entities/user.entity';
 import { UserSetting } from '../entities/user-setting.entity';
 
@@ -64,7 +65,7 @@ import { UserSetting } from '../entities/user-setting.entity';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService, SocialTokenVerifier],
   exports: [AuthService],
 })
 export class AuthModule {}

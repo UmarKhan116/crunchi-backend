@@ -1,10 +1,20 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Post } from '../entities/post.entity';
 import { Restaurant } from '../entities/restaurant.entity';
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+  resolveInsideStorage,
+  STORAGE_ROOT,
+} from '../common/utils/storage-path';
+import { toSafeUser } from '../common/utils/user-sanitizer';
+
+/** Uploads are named `image-u<userId>-…` (see media.module.ts) to record the owner. */
+export function uploadOwnerPrefix(userId: number) {
+  return `image-u${userId}-`;
+}
 
 @Injectable()
 export class MediaService {
@@ -39,29 +49,58 @@ export class MediaService {
     }
   }
 
-  async removeImage(filename: string) {
-    try {
-      const filePath = path.join(__dirname, '..', '..', 'storage', filename);
+  /** Overridable in tests. */
+  protected storageRoot = STORAGE_ROOT;
 
-      // Check if file exists
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        return {
-          success: true,
-          message: 'Image removed successfully',
-        };
-      } else {
+  async removeImage(userId: number, filename: string) {
+    // Throws 400 for empty names and anything resolving outside storage/.
+    const filePath = resolveInsideStorage(this.storageRoot, filename);
+    const name = path.relative(this.storageRoot, filePath);
+
+    if (!(await this.ownsUpload(userId, name))) {
+      throw new ForbiddenException('You can only remove your own uploads');
+    }
+
+    try {
+      if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
         return {
           success: false,
           message: 'Image not found',
         };
       }
+      fs.unlinkSync(filePath);
+      return {
+        success: true,
+        message: 'Image removed successfully',
+      };
     } catch (error) {
       return {
         success: false,
         message: 'Failed to remove image: ' + error.message,
       };
     }
+  }
+
+  /**
+   * New uploads carry the owner in their name. Older uploads have no owner
+   * record, so they count as yours only when one of your posts uses them.
+   */
+  private async ownsUpload(userId: number, name: string): Promise<boolean> {
+    if (
+      !name.includes(path.sep) &&
+      name.startsWith(uploadOwnerPrefix(userId))
+    ) {
+      return true;
+    }
+    const rows = await this.postRepository.query(
+      `SELECT 1 FROM posts
+        WHERE user_id = $1
+          AND images IS NOT NULL
+          AND images::jsonb @> jsonb_build_array($2::text)
+        LIMIT 1`,
+      [userId, name],
+    );
+    return rows.length > 0;
   }
 
   async getRestaurantMedia(restaurantId: string) {
@@ -79,7 +118,7 @@ export class MediaService {
           return post.images.map((image) => ({
             image,
             post_id: post.id,
-            user: post.user,
+            user: toSafeUser(post.user),
             description: post.description,
             created_at: post.created_at,
           }));

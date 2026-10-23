@@ -3,7 +3,10 @@ import {
   UnauthorizedException,
   ConflictException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { randomBytes } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -15,6 +18,11 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { UserProfileDto } from './dto/user-profile.dto';
 import { User } from '../entities/user.entity';
 import { UserSetting } from '../entities/user-setting.entity';
+import { toSafeUser } from '../common/utils/user-sanitizer';
+import {
+  SocialTokenVerifier,
+  VerifiedSocialIdentity,
+} from './social/social-token-verifier.service';
 
 @Injectable()
 export class AuthService {
@@ -24,6 +32,8 @@ export class AuthService {
     @InjectRepository(UserSetting)
     private readonly userSettingRepository: Repository<UserSetting>,
     private readonly jwtService: JwtService,
+    private readonly socialVerifier: SocialTokenVerifier,
+    private readonly config: ConfigService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -153,7 +163,113 @@ export class AuthService {
     }
   }
 
-  async socialLogin(socialLoginDto: SocialLoginDto) {
+  /**
+   * Verified when the body carries a provider token. The old unverified body
+   * (`social_id` only) is accepted while ALLOW_LEGACY_SOCIAL_LOGIN=true (the
+   * default) and rejected with 400 once it is flipped.
+   */
+  async socialLogin(dto: SocialLoginDto) {
+    const hasToken = !!(dto.idToken || dto.identityToken || dto.accessToken);
+    if (hasToken) {
+      const identity = await this.socialVerifier.verify(dto.provider, dto);
+      return this.verifiedSocialLogin(identity, dto);
+    }
+    if (!this.legacySocialLoginAllowed()) {
+      throw new BadRequestException(
+        'A provider token (idToken, identityToken or accessToken) is required',
+      );
+    }
+    if (!dto.social_id) {
+      throw new BadRequestException('social_id is required');
+    }
+    return this.legacySocialLogin(dto);
+  }
+
+  private legacySocialLoginAllowed(): boolean {
+    const flag = this.config.get<string>('ALLOW_LEGACY_SOCIAL_LOGIN') ?? 'true';
+    return flag.trim().toLowerCase() === 'true';
+  }
+
+  /**
+   * Match on the verified (provider, subject). Link to an existing email
+   * account only when the provider says the email is verified.
+   */
+  private async verifiedSocialLogin(
+    identity: VerifiedSocialIdentity,
+    dto: SocialLoginDto,
+  ) {
+    const deviceToken = dto.deviceToken || dto.device_token || dto.fcm_token;
+    let isNewUser = false;
+
+    let user = await this.userRepository.findOne({
+      where: {
+        social_provider: identity.provider,
+        social_id: identity.subject,
+      },
+    });
+
+    if (!user && identity.email) {
+      const existing = await this.userRepository
+        .createQueryBuilder('user')
+        .where('LOWER(user.email) = LOWER(:email)', { email: identity.email })
+        .getOne();
+      if (existing) {
+        if (!identity.emailVerified) {
+          throw new ConflictException(
+            'An account with this email already exists. Log in with your password.',
+          );
+        }
+        existing.social_id = identity.subject;
+        existing.social_provider = identity.provider;
+        user = existing;
+      }
+    }
+
+    if (!user) {
+      isNewUser = true;
+      const fullName =
+        dto.fullName?.trim() ||
+        dto.name?.trim() ||
+        identity.name ||
+        identity.email?.split('@')[0] ||
+        'Crunchii user';
+      user = this.userRepository.create({
+        // users.email is NOT NULL + UNIQUE; Apple/Facebook may hide the email.
+        email:
+          identity.email ??
+          `${identity.provider}_${identity.subject}@social.crunchii.invalid`,
+        full_name: fullName,
+        social_id: identity.subject,
+        social_provider: identity.provider,
+        profile_picture: '',
+        is_active: true,
+        is_verified: identity.emailVerified,
+        password: await bcrypt.hash(randomBytes(32).toString('hex'), 10),
+        device_token: deviceToken || null,
+      });
+    } else if (!user.is_active) {
+      throw new UnauthorizedException('Account is deactivated');
+    }
+
+    if (deviceToken) user.device_token = deviceToken;
+    user = await this.userRepository.save(user);
+
+    const token = this.jwtService.sign({ id: user.id, email: user.email });
+    delete user.password;
+    delete user.reset_password_token;
+    delete user.reset_password_expires;
+
+    return {
+      success: true,
+      message: 'Social login successful',
+      token,
+      user,
+      isNewUser,
+    };
+  }
+
+  /** Pre-Milestone-1 behaviour, unchanged: trusts the client's social_id. */
+  private async legacySocialLogin(socialLoginDto: SocialLoginDto) {
     try {
       let isNewUser = false;
       const deviceToken =
@@ -342,14 +458,11 @@ export class AuthService {
 
       // Transform followers: follower → follows (to match frontend expectation)
       if (user.followers && user.followers.length > 0) {
+        // Followers are other people: public fields only.
         user.followers = user.followers.map((follow: any) => ({
           ...follow,
-          follows: follow.follower
-            ? {
-                ...follow.follower,
-                image: follow.follower.profile_picture || follow.follower.image,
-              }
-            : null,
+          follower: toSafeUser(follow.follower),
+          follows: toSafeUser(follow.follower) ?? null,
         }));
       } else {
         user.followers = [];
@@ -359,13 +472,7 @@ export class AuthService {
       if (user.following && user.following.length > 0) {
         user.following = user.following.map((follow: any) => ({
           ...follow,
-          following: follow.following
-            ? {
-                ...follow.following,
-                image:
-                  follow.following.profile_picture || follow.following.image,
-              }
-            : null,
+          following: toSafeUser(follow.following) ?? null,
         }));
       } else {
         user.following = [];

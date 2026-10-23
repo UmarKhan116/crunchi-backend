@@ -12,6 +12,7 @@ import { User } from '../entities/user.entity';
 import { Category } from '../entities/category.entity';
 import { Restaurant } from '../entities/restaurant.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import { toSafeUser } from '../common/utils/user-sanitizer';
 
 @Injectable()
 export class PostsService {
@@ -141,21 +142,18 @@ export class PostsService {
         });
       }
 
-      // Add image field to user for backwards compatibility
-      if (post.user) {
-        (post.user as any).image = post.user.profile_picture;
-      }
-
+      // Users are other people here: only public fields (incl. `image`).
       return {
         success: true,
         message: 'Post retrieved successfully',
         post: {
           ...post,
+          user: toSafeUser(post.user),
           file: file,
           review: post.description, // Frontend expects 'review', backend has 'description'
           name: post.location, // Frontend expects 'name' field
-          comments,
-          likes,
+          comments: comments.map((c) => ({ ...c, user: toSafeUser(c.user) })),
+          likes: likes.map((l) => ({ ...l, user: toSafeUser(l.user) })),
         },
       };
     } catch (error) {
@@ -338,13 +336,14 @@ export class PostsService {
           });
         }
 
-        // Add image field to user for backwards compatibility
-        if (post.user) {
-          post.user.image = post.user.profile_picture;
-        }
-
         return {
           ...post,
+          user: toSafeUser(post.user),
+          likes: (post.likes || []).map((l) => ({ ...l, user: toSafeUser(l.user) })),
+          comments: (post.comments || []).map((c) => ({
+            ...c,
+            user: toSafeUser(c.user),
+          })),
           file: file,
           review: post.description, // Frontend expects 'review', backend has 'description'
           name: post.location, // Frontend expects 'name' field
@@ -527,7 +526,9 @@ export class PostsService {
       return {
         success: true,
         message: 'Comment added successfully',
-        comment: commentWithUser,
+        comment: commentWithUser
+          ? { ...commentWithUser, user: toSafeUser(commentWithUser.user) }
+          : commentWithUser,
       };
     } catch (error) {
       return {
@@ -547,7 +548,7 @@ export class PostsService {
 
       const likedPosts = likes
         .filter((like) => like.post && like.post.is_active)
-        .map((like) => like.post);
+        .map((like) => ({ ...like.post, user: toSafeUser(like.post.user) }));
 
       return {
         success: true,
@@ -573,7 +574,7 @@ export class PostsService {
 
       const favoritePosts = likes
         .filter((like) => like.post && like.post.is_active)
-        .map((like) => like.post);
+        .map((like) => ({ ...like.post, user: toSafeUser(like.post.user) }));
 
       return {
         success: true,

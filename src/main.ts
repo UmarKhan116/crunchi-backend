@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
@@ -11,6 +12,7 @@ import {
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const env = app.get(ConfigService);
 
   // Enable global validation pipe
   app.useGlobalPipes(
@@ -25,9 +27,14 @@ async function bootstrap() {
   // Contract error envelope: { success: false, message, errors? }
   app.useGlobalFilters(new ApiExceptionFilter());
 
-  // Enable CORS for mobile app
+  // Client IPs for the login rate limit. 'loopback' trusts X-Forwarded-For
+  // only from a proxy on the same host (nginx); set TRUST_PROXY to a hop
+  // count or subnet list if the proxy is elsewhere.
+  app.set('trust proxy', parseTrustProxy(env.get('TRUST_PROXY')));
+
+  // CORS: comma-separated CORS_ORIGINS, or '*' when unset.
   app.enableCors({
-    origin: '*',
+    origin: parseCorsOrigins(env.get('CORS_ORIGINS')),
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
     allowedHeaders: 'Content-Type,Authorization,Accept',
@@ -94,4 +101,22 @@ async function bootstrap() {
   console.log(`Application is also accessible from: http://0.0.0.0:${port}`);
   console.log(`Swagger documentation: http://localhost:${port}/api/docs`);
 }
+function parseCorsOrigins(value?: string): string | string[] {
+  const origins = (value ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  if (!origins.length || origins.includes('*')) return '*';
+  return origins;
+}
+
+function parseTrustProxy(value?: string): boolean | number | string {
+  const v = value?.trim();
+  if (!v) return 'loopback';
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  if (/^\d+$/.test(v)) return Number(v);
+  return v;
+}
+
 bootstrap();

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Brackets, Repository } from 'typeorm';
 import { User } from '../entities/user.entity';
 
 @Injectable()
@@ -24,27 +24,29 @@ export class SearchService {
         };
       }
 
-      // Search users by name, username, or email (case-insensitive)
+      // Name or username only (never email). The OR group is bracketed so
+      // the is_active filter applies to every match.
+      const pattern = `%${query.trim().replace(/[\\%_]/g, '\\$&')}%`;
       const users = await this.userRepository
         .createQueryBuilder('user')
-        .where('LOWER(user.full_name) LIKE LOWER(:query)', {
-          query: `%${query}%`,
-        })
-        .orWhere('LOWER(user.user_name) LIKE LOWER(:query)', {
-          query: `%${query}%`,
-        })
-        .orWhere('LOWER(user.email) LIKE LOWER(:query)', {
-          query: `%${query}%`,
-        })
-        .andWhere('user.is_active = :isActive', { isActive: true })
+        .where('user.is_active = :isActive', { isActive: true })
+        .andWhere(
+          new Brackets((qb) => {
+            qb.where('LOWER(user.full_name) LIKE LOWER(:pattern)', {
+              pattern,
+            }).orWhere('LOWER(user.user_name) LIKE LOWER(:pattern)', {
+              pattern,
+            });
+          }),
+        )
         .select([
           'user.id',
-          'user.email',
           'user.full_name',
           'user.user_name',
           'user.profile_picture',
           'user.bio',
         ])
+        .orderBy('user.id', 'ASC')
         .take(50)
         .getMany();
 

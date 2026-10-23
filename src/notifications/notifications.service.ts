@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Notification } from '../entities/notification.entity';
 import { User } from '../entities/user.entity';
 import { FcmService } from './fcm.service';
+import { toSafeUser } from '../common/utils/user-sanitizer';
 
 @Injectable()
 export class NotificationsService {
@@ -36,12 +37,8 @@ export class NotificationsService {
           where: uniqueActorIds.map((id) => ({ id })),
         });
         actorUsers = users.reduce((acc, user) => {
-          // Remove sensitive fields and add image field
-          const { password, reset_password_token, reset_password_expires, ...safeUser } = user;
-          acc[user.id] = {
-            ...safeUser,
-            image: user.profile_picture, // Map profile_picture to image
-          };
+          // The actor is someone else: public fields (+ legacy `image`) only.
+          acc[user.id] = toSafeUser(user);
           return acc;
         }, {});
       }

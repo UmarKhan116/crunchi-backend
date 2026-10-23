@@ -3,6 +3,7 @@ import './common/auth/jwt-secrets';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -31,6 +32,9 @@ import { AuthCommonModule } from './common/auth/auth-common.module';
       useFactory: getDatabaseConfig,
       inject: [ConfigService],
     }),
+    // Only used by routes that opt in with @UseGuards(ThrottlerGuard):
+    // login, register, forgot and socialLogin get 10 requests/min per IP.
+    ThrottlerModule.forRoot([{ name: 'auth', ttl: 60_000, limit: 10 }]),
     AuthCommonModule,
     AuthModule,
     CategoriesModule,

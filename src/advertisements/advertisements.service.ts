@@ -75,49 +75,48 @@ export class AdvertisementsService {
     }
   }
 
-  async trackAdvertisementView(viewData: any) {
+  /** The viewer always comes from the token; a body `user_id` is ignored. */
+  async trackAdvertisementView(viewData: any, userId: number) {
     try {
-      const advertisementId = viewData.advertisement_id || viewData.ad_id;
-      const userId = viewData.user_id;
+      const advertisementId = Number(
+        viewData?.advertisement_id ?? viewData?.ad_id,
+      );
+      const clicked = viewData?.clicked ? 1 : 0;
 
-      // Find or create advertisement view
-      let adView = await this.advertisementViewRepository.findOne({
-        where: {
-          advertisement_id: advertisementId,
-          user_id: userId,
-        },
-      });
-
-      if (adView) {
-        // Update existing view
-        adView.view_count += 1;
-        if (viewData.clicked) {
-          adView.click_count += 1;
-        }
-      } else {
-        // Create new view
-        adView = this.advertisementViewRepository.create({
-          advertisement_id: advertisementId,
-          user_id: userId,
-          view_count: 1,
-          click_count: viewData.clicked ? 1 : 0,
-        });
+      if (!Number.isInteger(advertisementId) || advertisementId <= 0) {
+        return {
+          success: false,
+          message: 'advertisement_id is required',
+        };
       }
 
-      await this.advertisementViewRepository.save(adView);
-
-      // Update advertisement counts
-      const advertisement = await this.advertisementRepository.findOne({
+      const exists = await this.advertisementRepository.exists({
         where: { id: advertisementId },
       });
-
-      if (advertisement) {
-        advertisement.views_count += 1;
-        if (viewData.clicked) {
-          advertisement.clicks_count += 1;
-        }
-        await this.advertisementRepository.save(advertisement);
+      if (!exists) {
+        return {
+          success: false,
+          message: 'Advertisement not found',
+        };
       }
+
+      // Upsert + increments in single statements so concurrent views from
+      // the same user never lose a count or hit the unique constraint.
+      await this.advertisementViewRepository.query(
+        `INSERT INTO advertisement_views (advertisement_id, user_id, view_count, click_count)
+         VALUES ($1, $2, 1, $3)
+         ON CONFLICT (advertisement_id, user_id)
+         DO UPDATE SET view_count = advertisement_views.view_count + 1,
+                       click_count = advertisement_views.click_count + EXCLUDED.click_count`,
+        [advertisementId, userId, clicked],
+      );
+      await this.advertisementRepository.query(
+        `UPDATE advertisements
+            SET views_count = views_count + 1,
+                clicks_count = clicks_count + $2
+          WHERE id = $1`,
+        [advertisementId, clicked],
+      );
 
       return {
         success: true,

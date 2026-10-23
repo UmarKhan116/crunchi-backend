@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -6,6 +6,8 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { AdvertisementsService } from './advertisements.service';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('Advertisements')
 @Controller('api')
@@ -23,13 +25,18 @@ export class AdvertisementsController {
   }
 
   @Post('advertisement-view')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Track advertisement view' })
   @ApiBearerAuth('JWT-auth')
   @ApiResponse({
     status: 200,
     description: 'Advertisement view tracked successfully',
   })
-  async trackAdvertisementView(@Body() viewData: any) {
-    return this.advertisementsService.trackAdvertisementView(viewData);
+  @ApiResponse({ status: 401, description: 'Login required' })
+  async trackAdvertisementView(
+    @Body() viewData: any,
+    @CurrentUser('id') userId: number,
+  ) {
+    return this.advertisementsService.trackAdvertisementView(viewData, userId);
   }
 }

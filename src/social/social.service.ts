@@ -6,6 +6,7 @@ import { Follow } from '../entities/follow.entity';
 import { User } from '../entities/user.entity';
 import { Post } from '../entities/post.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import { toSafeUser } from '../common/utils/user-sanitizer';
 
 @Injectable()
 export class SocialService {
@@ -153,10 +154,8 @@ export class SocialService {
       if (user.followers && user.followers.length > 0) {
         user.followers = user.followers.map((follow: any) => ({
           ...follow,
-          follows: follow.follower ? {
-            ...follow.follower,
-            image: follow.follower.profile_picture || follow.follower.image,
-          } : null,
+          follower: toSafeUser(follow.follower),
+          follows: toSafeUser(follow.follower) ?? null,
         }));
       } else {
         user.followers = [];
@@ -166,24 +165,18 @@ export class SocialService {
       if (user.following && user.following.length > 0) {
         user.following = user.following.map((follow: any) => ({
           ...follow,
-          following: follow.following ? {
-            ...follow.following,
-            image: follow.following.profile_picture || follow.following.image,
-          } : null,
+          following: toSafeUser(follow.following) ?? null,
         }));
       } else {
         user.following = [];
       }
 
-      // Remove password from response
-      delete user.password;
-      delete user.reset_password_token;
-      delete user.reset_password_expires;
-
-      // Add 'image' field for backwards compatibility (frontend expects 'image')
+      // Someone else's profile: public fields only (no email, hash, tokens
+      // or social ids). toSafeUser also adds the legacy `image` alias.
       const transformedUser = {
-        ...user,
-        image: user.profile_picture,
+        ...toSafeUser(user),
+        followers: user.followers,
+        following: user.following,
       };
 
       return {
