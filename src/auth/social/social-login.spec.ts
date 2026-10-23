@@ -258,6 +258,161 @@ describe('SocialTokenVerifier', () => {
     });
   });
 
+  describe('Facebook Limited Login (OIDC idToken)', () => {
+    const JWKS_URL =
+      'https://limited.facebook.com/.well-known/oauth/openid/jwks/';
+    const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+    });
+    const jwk = {
+      ...publicKey.export({ format: 'jwk' }),
+      kid: 'fb-kid',
+      alg: 'RS256',
+      use: 'sig',
+    };
+    const otherKey = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+    }).privateKey;
+    const signer = new JwtService({});
+    const pem = (key = privateKey) =>
+      key.export({ type: 'pkcs8', format: 'pem' }).toString();
+    const now = () => Math.floor(Date.now() / 1000);
+
+    const fbToken = (claims: object = {}, key = privateKey) =>
+      signer.sign(
+        {
+          iss: 'https://www.facebook.com',
+          aud: '1234',
+          sub: 'fb-77',
+          iat: now(),
+          exp: now() + 300,
+          nonce: 'n-1',
+          email: 'Fay@Example.com',
+          name: 'Fay',
+          ...claims,
+        },
+        { algorithm: 'RS256', privateKey: pem(key), keyid: 'fb-kid' },
+      );
+
+    beforeEach(() => {
+      fetchMock.mockImplementation(async (url: string) => {
+        expect(url).toBe(JWKS_URL);
+        return jsonResponse({ keys: [jwk] });
+      });
+    });
+
+    it('accepts a token signed by a Facebook JWKS key for our app id', async () => {
+      const verifier = new SocialTokenVerifier(configWith(ENV));
+      const identity = await verifier.verify('facebook', {
+        idToken: fbToken(),
+      });
+      expect(identity).toEqual({
+        provider: 'facebook',
+        subject: 'fb-77',
+        email: 'fay@example.com',
+        emailVerified: true,
+        name: 'Fay',
+      });
+      // Never touches the Graph API.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('caches the JWKS between logins', async () => {
+      const verifier = new SocialTokenVerifier(configWith(ENV));
+      await verifier.verify('facebook', { idToken: fbToken() });
+      await verifier.verify('facebook', { idToken: fbToken() });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('has no email when the user did not share one', async () => {
+      const verifier = new SocialTokenVerifier(configWith(ENV));
+      const identity = await verifier.verify('facebook', {
+        idToken: fbToken({ email: undefined }),
+      });
+      expect(identity.email).toBeNull();
+      expect(identity.emailVerified).toBe(false);
+    });
+
+    it('only needs FACEBOOK_APP_ID (no secret)', async () => {
+      const verifier = new SocialTokenVerifier(
+        configWith({ FACEBOOK_APP_ID: '1234' }),
+      );
+      const identity = await verifier.verify('facebook', {
+        idToken: fbToken(),
+      });
+      expect(identity.subject).toBe('fb-77');
+    });
+
+    it.each([
+      ['another audience', () => fbToken({ aud: '9999' })],
+      ['another issuer', () => fbToken({ iss: 'https://evil.example' })],
+      ['an expired token', () => fbToken({ exp: now() - 10 })],
+      ['a bad signature', () => fbToken({}, otherKey)],
+      [
+        'a tampered payload',
+        () => {
+          const [h, , sig] = fbToken().split('.');
+          const body = Buffer.from(
+            JSON.stringify({
+              iss: 'https://www.facebook.com',
+              aud: '1234',
+              sub: 'someone-else',
+              exp: now() + 300,
+            }),
+          ).toString('base64url');
+          return `${h}.${body}.${sig}`;
+        },
+      ],
+      ['a token without sub', () => fbToken({ sub: undefined })],
+    ])('rejects %s with 401', async (_label, make) => {
+      const verifier = new SocialTokenVerifier(configWith(ENV));
+      await expect(
+        verifier.verify('facebook', { idToken: make() }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('rejects an unknown kid after one JWKS refetch', async () => {
+      const verifier = new SocialTokenVerifier(configWith(ENV));
+      const token = signer.sign(
+        { iss: 'https://www.facebook.com', aud: '1234', sub: 'fb-77' },
+        {
+          algorithm: 'RS256',
+          privateKey: pem(),
+          keyid: 'rotated-away',
+          expiresIn: '5m',
+        },
+      );
+      await expect(
+        verifier.verify('facebook', { idToken: token }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails closed with 503 when FACEBOOK_APP_ID is unset', async () => {
+      const verifier = new SocialTokenVerifier(configWith({}));
+      await expect(
+        verifier.verify('facebook', { idToken: fbToken() }),
+      ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    });
+
+    it('prefers the access token when both are sent', async () => {
+      fetchMock.mockImplementation(async (url: string) => {
+        if (url.includes('/debug_token')) {
+          return jsonResponse({
+            data: { is_valid: true, app_id: '1234', user_id: 'fb-77' },
+          });
+        }
+        return jsonResponse({ id: 'fb-77', name: 'Fay' });
+      });
+      const verifier = new SocialTokenVerifier(configWith(ENV));
+      await verifier.verify('facebook', {
+        accessToken: 'user-token',
+        idToken: 'ignored',
+      });
+      expect(fetchMock.mock.calls[0][0]).toContain('/debug_token');
+    });
+  });
+
   it('rejects an unknown provider', async () => {
     const verifier = new SocialTokenVerifier(configWith(ENV));
     await expect(

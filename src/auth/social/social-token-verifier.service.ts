@@ -34,14 +34,22 @@ export interface SocialTokens {
 
 const APPLE_ISSUER = 'https://appleid.apple.com';
 const APPLE_KEYS_URL = 'https://appleid.apple.com/auth/keys';
-const APPLE_KEYS_TTL_MS = 6 * 60 * 60 * 1000;
+const JWKS_TTL_MS = 6 * 60 * 60 * 1000;
 const FACEBOOK_GRAPH = 'https://graph.facebook.com';
+// Limited Login (iOS) OIDC token. The discovery document at
+// https://limited.facebook.com/.well-known/openid-configuration/ names this
+// issuer only; the JWKS URL is the one Facebook's Limited Login docs give.
+const FACEBOOK_OIDC_ISSUER = 'https://www.facebook.com';
+const FACEBOOK_JWKS_URL =
+  'https://limited.facebook.com/.well-known/oauth/openid/jwks/';
 
 /**
  * Verifies social sign-in tokens on the server (POST /api/socialLogin).
  *  - Google: `idToken` signature + audience in GOOGLE_CLIENT_IDS.
  *  - Apple: `identityToken` against Apple's JWKS, audience APPLE_BUNDLE_ID.
- *  - Facebook: `accessToken` via debug_token with FACEBOOK_APP_ID/SECRET.
+ *  - Facebook: `accessToken` via debug_token with FACEBOOK_APP_ID/SECRET, or
+ *    the iOS Limited Login `idToken` (OIDC JWT) against Facebook's JWKS,
+ *    audience FACEBOOK_APP_ID.
  */
 @Injectable()
 export class SocialTokenVerifier {
@@ -49,7 +57,11 @@ export class SocialTokenVerifier {
   private readonly jwt = new JwtService({});
   /** Exposed for tests (jest.spyOn on verifyIdToken). */
   readonly googleClient = new OAuth2Client();
-  private appleKeys: { fetchedAt: number; keys: any[] } | null = null;
+  /** JWKS per URL (Apple, Facebook Limited Login), refetched on TTL or unknown kid. */
+  private readonly jwksCache = new Map<
+    string,
+    { fetchedAt: number; keys: any[] }
+  >();
 
   constructor(private readonly config: ConfigService) {}
 
@@ -63,6 +75,10 @@ export class SocialTokenVerifier {
       case 'apple':
         return this.verifyApple(tokens.identityToken ?? tokens.idToken);
       case 'facebook':
+        // Classic login gives an access token; iOS Limited Login only an OIDC JWT.
+        if (!tokens.accessToken && tokens.idToken) {
+          return this.verifyFacebookLimited(tokens.idToken);
+        }
         return this.verifyFacebook(tokens.accessToken);
       default:
         throw new BadRequestException(
@@ -119,30 +135,12 @@ export class SocialTokenVerifier {
     const audience = this.list('APPLE_BUNDLE_ID');
     if (!audience.length) this.notConfigured('Apple');
 
-    const header = this.decodeHeader(identityToken);
-    if (!header?.kid || header.alg !== 'RS256') {
-      throw new UnauthorizedException('Invalid Apple token');
-    }
-
-    const jwk = await this.appleKey(header.kid);
-    if (!jwk) throw new UnauthorizedException('Invalid Apple token');
-
-    let payload: any;
-    try {
-      const publicKey = createPublicKey({ key: jwk, format: 'jwk' })
-        .export({ type: 'spki', format: 'pem' })
-        .toString();
-      payload = this.jwt.verify(identityToken, {
-        publicKey,
-        algorithms: ['RS256'],
-        issuer: APPLE_ISSUER,
-        audience: audience.length === 1 ? audience[0] : (audience as any),
-      });
-    } catch (error) {
-      this.logger.warn(`Apple token rejected: ${error?.message}`);
-      throw new UnauthorizedException('Invalid Apple token');
-    }
-    if (!payload?.sub) throw new UnauthorizedException('Invalid Apple token');
+    const payload = await this.verifyJwksToken(identityToken, {
+      provider: 'Apple',
+      jwksUrl: APPLE_KEYS_URL,
+      issuer: APPLE_ISSUER,
+      audience,
+    });
 
     return {
       provider: 'apple',
@@ -188,6 +186,71 @@ export class SocialTokenVerifier {
     };
   }
 
+  async verifyFacebookLimited(
+    idToken?: string,
+  ): Promise<VerifiedSocialIdentity> {
+    if (!idToken) throw new BadRequestException('idToken is required');
+    const appId = this.config.get<string>('FACEBOOK_APP_ID')?.trim();
+    if (!appId) this.notConfigured('Facebook');
+
+    const payload = await this.verifyJwksToken(idToken, {
+      provider: 'Facebook',
+      jwksUrl: FACEBOOK_JWKS_URL,
+      issuer: FACEBOOK_OIDC_ISSUER,
+      audience: [appId],
+    });
+
+    return {
+      provider: 'facebook',
+      // Same app-scoped user id that debug_token returns as user_id.
+      subject: String(payload.sub),
+      email: payload.email ? String(payload.email).toLowerCase() : null,
+      // Like the Graph path: Facebook only shares a confirmed email.
+      emailVerified: !!payload.email,
+      name: payload.name ?? null,
+    };
+  }
+
+  /** Verifies an RS256 JWT against a cached JWKS; any failure is a 401. */
+  private async verifyJwksToken(
+    token: string,
+    opts: {
+      provider: string;
+      jwksUrl: string;
+      issuer: string;
+      audience: string[];
+    },
+  ): Promise<any> {
+    const invalid = () =>
+      new UnauthorizedException(`Invalid ${opts.provider} token`);
+    const header = this.decodeHeader(token);
+    if (!header?.kid || header.alg !== 'RS256') throw invalid();
+
+    const jwk = await this.jwksKey(opts.jwksUrl, header.kid, opts.provider);
+    if (!jwk) throw invalid();
+
+    let payload: any;
+    try {
+      const publicKey = createPublicKey({ key: jwk, format: 'jwk' })
+        .export({ type: 'spki', format: 'pem' })
+        .toString();
+      payload = this.jwt.verify(token, {
+        publicKey,
+        algorithms: ['RS256'],
+        issuer: opts.issuer,
+        audience:
+          opts.audience.length === 1
+            ? opts.audience[0]
+            : (opts.audience as any),
+      });
+    } catch (error) {
+      this.logger.warn(`${opts.provider} token rejected: ${error?.message}`);
+      throw invalid();
+    }
+    if (!payload?.sub) throw invalid();
+    return payload;
+  }
+
   private decodeHeader(token: string): any {
     try {
       const [h] = token.split('.');
@@ -197,18 +260,20 @@ export class SocialTokenVerifier {
     }
   }
 
-  private async appleKey(kid: string): Promise<any | null> {
-    const fresh =
-      this.appleKeys &&
-      Date.now() - this.appleKeys.fetchedAt < APPLE_KEYS_TTL_MS;
-    let key = fresh
-      ? this.appleKeys.keys.find((k) => k.kid === kid)
-      : undefined;
+  private async jwksKey(
+    url: string,
+    kid: string,
+    provider: string,
+  ): Promise<any | null> {
+    const cached = this.jwksCache.get(url);
+    const fresh = cached && Date.now() - cached.fetchedAt < JWKS_TTL_MS;
+    let key = fresh ? cached.keys.find((k) => k.kid === kid) : undefined;
     if (!key) {
-      // Unknown kid: Apple may have rotated keys, so refetch once.
-      const body: any = await this.getJson(APPLE_KEYS_URL, 'Apple');
-      this.appleKeys = { fetchedAt: Date.now(), keys: body?.keys ?? [] };
-      key = this.appleKeys.keys.find((k) => k.kid === kid);
+      // Unknown kid: the provider may have rotated keys, so refetch once.
+      const body: any = await this.getJson(url, provider);
+      const keys = Array.isArray(body?.keys) ? body.keys : [];
+      this.jwksCache.set(url, { fetchedAt: Date.now(), keys });
+      key = keys.find((k) => k.kid === kid);
     }
     return key ?? null;
   }
