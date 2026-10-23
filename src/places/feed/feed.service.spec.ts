@@ -341,6 +341,27 @@ describe('FeedService', () => {
     expect(i3.place.openingHours).toBeNull();
   });
 
+  it('degrades to the remaining categories and posts when Google fails', async () => {
+    const { feed, google } = setup();
+    google.nearbySearch.mockImplementation(async ({ keyword }) => {
+      if (keyword === 'italian') throw new Error('OVER_QUERY_LIMIT');
+      return { results: GOOGLE_PAGES[keyword][0], nextPageToken: null };
+    });
+    const res = await feed.feed({ ...ORIGIN, limit: 20 }, ctx());
+    const placeIds = res.items
+      .filter((i) => i.kind === 'place')
+      .map((i) => (i as any).place.placeId);
+    expect(placeIds).toEqual(['m1', 'shared', 'm2']);
+    expect(res.items.filter((i) => i.kind === 'post')).toHaveLength(5);
+
+    // not cached: the next request retries the failed category
+    google.nearbySearch.mockClear();
+    await feed.feed({ ...ORIGIN, limit: 3 }, ctx());
+    expect(google.nearbySearch.mock.calls.map(([p]) => p.keyword)).toEqual([
+      'italian',
+    ]);
+  });
+
   it('returns contract shapes with absolute URLs and no PII', async () => {
     const res = await setup().feed.feed({ ...ORIGIN, limit: 3 }, ctx());
     const place = (res.items[0] as any).place;

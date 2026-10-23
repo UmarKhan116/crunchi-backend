@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Category } from '../../entities/category.entity';
@@ -62,6 +62,8 @@ const clamp = (v: number, min: number, max: number) =>
  */
 @Injectable()
 export class FeedService {
+  private readonly logger = new Logger(FeedService.name);
+
   constructor(
     private readonly places: PlacesService,
     private readonly postQuery: PostQueryService,
@@ -111,7 +113,17 @@ export class FeedService {
       const pages = await Promise.all(
         categories.map((c) =>
           page === 1 || levels[page - 2]?.[categories.indexOf(c)]?.next
-            ? this.places.nearbyPage(c, cell, bucket, openNow, page)
+            ? this.places
+                .nearbyPage(c, cell, bucket, openNow, page)
+                .catch((error) => {
+                  // One failing search (quota, Google down, no key) should
+                  // not take the whole feed down: show the rest and posts.
+                  // Failures are not cached, so the next request retries.
+                  this.logger.warn(
+                    `nearby ${c.keyword ?? c.googleType} p${page} failed: ${error?.message}`,
+                  );
+                  return { results: [], nextPageToken: null };
+                })
             : Promise.resolve({ results: [], nextPageToken: null }),
         ),
       );
