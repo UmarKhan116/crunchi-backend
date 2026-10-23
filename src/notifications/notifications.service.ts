@@ -59,22 +59,27 @@ export class NotificationsService {
       }
 
       // Transform notifications to include user image field and actor user for frontend compatibility
-      const transformedNotifications = notifications.map((notification: any) => {
-        // Set recipient user image (the user who receives the notification)
-        if (notification.user) {
-          // Remove sensitive fields from notification.user
-          delete notification.user.password;
-          delete notification.user.reset_password_token;
-          delete notification.user.reset_password_expires;
-          // Map profile_picture to image
-          notification.user.image = notification.user.profile_picture;
-        }
-        // Add actor user (the user who performed the action) if exists
-        if (notification.actor_user_id && actorUsers[notification.actor_user_id]) {
-          notification.actor_user = actorUsers[notification.actor_user_id];
-        }
-        return notification;
-      });
+      const transformedNotifications = notifications.map(
+        (notification: any) => {
+          // Set recipient user image (the user who receives the notification)
+          if (notification.user) {
+            // Remove sensitive fields from notification.user
+            delete notification.user.password;
+            delete notification.user.reset_password_token;
+            delete notification.user.reset_password_expires;
+            // Map profile_picture to image
+            notification.user.image = notification.user.profile_picture;
+          }
+          // Add actor user (the user who performed the action) if exists
+          if (
+            notification.actor_user_id &&
+            actorUsers[notification.actor_user_id]
+          ) {
+            notification.actor_user = actorUsers[notification.actor_user_id];
+          }
+          return notification;
+        },
+      );
 
       return {
         success: true,
@@ -277,7 +282,8 @@ const VIDEO_EXTENSIONS = /\.(mp4|mov|avi|mkv|webm|m4v)(\?|$)/i;
 function firstImage(images: string[] | null | undefined): string | null {
   if (!Array.isArray(images)) return null;
   return (
-    images.find((f) => typeof f === 'string' && f && !VIDEO_EXTENSIONS.test(f)) ??
-    null
+    images.find(
+      (f) => typeof f === 'string' && f && !VIDEO_EXTENSIONS.test(f),
+    ) ?? null
   );
 }
