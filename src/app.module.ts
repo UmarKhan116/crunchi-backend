@@ -1,3 +1,5 @@
+// Must stay the first import: snapshots JWT_SECRET before .env is loaded.
+import './common/auth/jwt-secrets';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -16,6 +18,7 @@ import { SettingsModule } from './settings/settings.module';
 import { SessionModule } from './session/session.module';
 import { getDatabaseConfig } from './config/database.config';
 import { AdminModule } from './admin/admin.module';
+import { AuthCommonModule } from './common/auth/auth-common.module';
 
 @Module({
   imports: [
@@ -28,6 +31,7 @@ import { AdminModule } from './admin/admin.module';
       useFactory: getDatabaseConfig,
       inject: [ConfigService],
     }),
+    AuthCommonModule,
     AuthModule,
     CategoriesModule,
     PostsModule,

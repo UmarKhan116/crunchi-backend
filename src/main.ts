@@ -4,6 +4,10 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
+import {
+  ApiExceptionFilter,
+  validationExceptionFactory,
+} from './common/filters/api-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -14,8 +18,12 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      exceptionFactory: validationExceptionFactory,
     }),
   );
+
+  // Contract error envelope: { success: false, message, errors? }
+  app.useGlobalFilters(new ApiExceptionFilter());
 
   // Enable CORS for mobile app
   app.enableCors({
