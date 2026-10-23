@@ -81,7 +81,10 @@ export class AuthService {
         email: registerDto.email,
         password: hashedPassword,
         full_name: fullName,
-        user_name: registerDto.user_name || registerDto.userName || null,
+        user_name:
+          registerDto.user_name ||
+          registerDto.userName ||
+          (await this.generateUserName(registerDto.email.split('@')[0] || fullName)),
         is_active: true,
         is_verified: false,
         device_token: deviceToken,
@@ -256,6 +259,9 @@ export class AuthService {
           identity.email ??
           `${identity.provider}_${identity.subject}@social.crunchii.invalid`,
         full_name: fullName,
+        user_name: await this.generateUserName(
+          identity.email?.split('@')[0] || fullName,
+        ),
         social_id: identity.subject,
         social_provider: identity.provider,
         profile_picture: '',
@@ -327,6 +333,11 @@ export class AuthService {
             email: socialLoginDto.email,
             full_name:
               socialLoginDto.name || socialLoginDto.email?.split('@')[0],
+            user_name: await this.generateUserName(
+              socialLoginDto.email?.split('@')[0] ||
+                socialLoginDto.name ||
+                'user',
+            ),
             social_id: socialLoginDto.social_id,
             social_provider: socialLoginDto.provider,
             profile_picture: '',
@@ -625,5 +636,31 @@ export class AuthService {
         message: 'Failed to get user status: ' + error.message,
       };
     }
+  }
+
+  /**
+   * The app's sign-up forms don't ask for a username, but profiles, search and
+   * share links show "@username". Derive one from the email or name in the
+   * PATCH /api/me format (^[A-Za-z0-9._]{3,30}$), unique case-insensitively.
+   */
+  private async generateUserName(seed: string): Promise<string> {
+    let base = (seed || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9._]/g, '')
+      .replace(/^[._]+|[._]+$/g, '')
+      .slice(0, 20);
+    if (base.length < 3) base = `user${base}`;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const candidate =
+        attempt === 0
+          ? base
+          : `${base}${Math.floor(1000 + Math.random() * 9000)}`;
+      const taken = await this.userRepository
+        .createQueryBuilder('u')
+        .where('LOWER(u.user_name) = LOWER(:name)', { name: candidate })
+        .getExists();
+      if (!taken) return candidate;
+    }
+    return `${base}${Date.now().toString().slice(-6)}`;
   }
 }

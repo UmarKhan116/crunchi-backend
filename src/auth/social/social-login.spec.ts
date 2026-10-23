@@ -434,14 +434,19 @@ describe('AuthService.socialLogin', () => {
         ) ?? null,
     ),
     createQueryBuilder: jest.fn(() => {
-      let email: string;
+      let email: string | undefined;
+      let name: string | undefined;
       const qb: any = {
         where: (_: string, params: any) => {
-          email = params.email.toLowerCase();
+          email = params.email?.toLowerCase();
+          name = params.name?.toLowerCase();
           return qb;
         },
         getOne: async () =>
           users.find((u) => u.email.toLowerCase() === email) ?? null,
+        // generateUserName: is this username taken (case-insensitive)?
+        getExists: async () =>
+          users.some((u) => (u.user_name || '').toLowerCase() === name),
       };
       return qb;
     }),
@@ -534,10 +539,23 @@ describe('AuthService.socialLogin', () => {
         social_provider: 'google',
         email: 'ann@example.com',
         device_token: 'fcm-1',
+        // Sign-up never asks for one, so it is derived from the email.
+        user_name: 'ann',
       });
       // Also stored in device_tokens so pushes reach every device.
       expect(deviceTokens.register).toHaveBeenCalledWith(users[0].id, 'fcm-1');
       expect(res.user.password).toBeUndefined();
+    });
+
+    it('gives a new user a unique username when the derived one is taken', async () => {
+      users.push({ id: 99, email: 'other@example.com', user_name: 'Ann' });
+      verifier.verify.mockResolvedValue(identity);
+      await service({ ALLOW_LEGACY_SOCIAL_LOGIN: 'false' }).socialLogin({
+        provider: 'google',
+        idToken: 'tok',
+      } as any);
+      const created = users.find((u) => u.email === 'ann@example.com');
+      expect(created.user_name).toMatch(/^ann\d{4}$/);
     });
 
     it('logs an existing linked user back in', async () => {
