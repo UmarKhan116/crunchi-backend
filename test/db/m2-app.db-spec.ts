@@ -43,6 +43,8 @@ const describeDb = process.env.TEST_DB_PORT ? describe : describe.skip;
 
 type Who = { token: string; id: number };
 
+const PLACE_2 = 'ChIJ_test_place_0002';
+
 describeDb(
   'Milestone 2 HTTP endpoints (AppModule + throwaway Postgres)',
   () => {
@@ -531,7 +533,6 @@ describeDb(
 
     describe('set-state likes and favourites', () => {
       let postId: number;
-      const PLACE_2 = 'ChIJ_test_place_0002';
 
       beforeAll(async () => {
         const res = await http
@@ -1152,6 +1153,399 @@ describeDb(
           })
           .expect(415);
         expect(txt.body.success).toBe(false);
+      });
+    });
+
+    // ------------------------------------------------------------- users
+
+    describe('users and profile', () => {
+      it('GET /api/users/search matches userName/fullName only, with counts', async () => {
+        await http.get('/api/users/search?q=ali').expect(401);
+        const res = await http
+          .get('/api/users/search?q=ALI')
+          .set(auth(bob))
+          .expect(200);
+        expect(res.body.data).toEqual({
+          items: [
+            {
+              id: String(alice.id),
+              userName: 'alice',
+              fullName: 'Alice',
+              avatarUrl: null,
+              followersCount: 2,
+              postsCount: 0,
+              isFollowing: true,
+            },
+          ],
+          nextCursor: null,
+        });
+        for (const q of ['example.com', '%', '_', '']) {
+          const r = await http
+            .get(`/api/users/search?q=${encodeURIComponent(q)}`)
+            .set(auth(bob))
+            .expect(200);
+          expect(r.body.data.items).toEqual([]);
+        }
+        // Prefix matches first, then pages with a cursor.
+        const page1 = await http
+          .get('/api/users/search?q=o&limit=1')
+          .set(auth(alice))
+          .expect(200);
+        expect(page1.body.data.items).toHaveLength(1);
+        const page2 = await http
+          .get(
+            `/api/users/search?q=o&limit=1&cursor=${page1.body.data.nextCursor}`,
+          )
+          .set(auth(alice))
+          .expect(200);
+        expect(page2.body.data.items[0].id).not.toBe(
+          page1.body.data.items[0].id,
+        );
+      });
+
+      it('GET /api/users/:userId shows counts, isFollowing and isMe', async () => {
+        const guest = await http.get(`/api/users/${alice.id}`).expect(200);
+        expect(guest.body.data).toEqual({
+          id: String(alice.id),
+          userName: 'alice',
+          fullName: 'Alice',
+          avatarUrl: null,
+          bio: null,
+          followersCount: 2,
+          followingCount: 1,
+          postsCount: 0,
+          isFollowing: false,
+          isMe: false,
+        });
+        const asBob = await http
+          .get(`/api/users/${alice.id}`)
+          .set(auth(bob))
+          .expect(200);
+        expect(asBob.body.data.isFollowing).toBe(true);
+        const me = await http
+          .get(`/api/users/${alice.id}`)
+          .set(auth(alice))
+          .expect(200);
+        expect(me.body.data.isMe).toBe(true);
+        expect(JSON.stringify(me.body)).not.toMatch(/@example\.com|password/);
+        await http.get('/api/users/999999').expect(404);
+        await http.get('/api/users/abc').expect(404);
+      });
+
+      it('GET /api/users/:userId/posts pages active posts newest first', async () => {
+        const res = await http
+          .get(`/api/users/${carol.id}/posts?limit=1`)
+          .set(auth(alice))
+          .expect(200);
+        expect(res.body.data.items).toHaveLength(1);
+        expect(res.body.data.items[0].user.id).toBe(String(carol.id));
+        expect(res.body.data.items[0].isLiked).toBe(true);
+        expect(res.body.data.nextCursor).toBeNull(); // the other one is hidden
+        const bobs = await http.get(`/api/users/${bob.id}/posts`).expect(200);
+        expect(bobs.body.data.items.map((p) => p.description)).toEqual([
+          'Great carbonara',
+        ]);
+      });
+
+      it('GET /api/users/:userId/favorites builds PlaceSummary from restaurants and the cache', async () => {
+        const res = await http
+          .get(`/api/users/${alice.id}/favorites`)
+          .set(auth(alice))
+          .expect(200);
+        const items = res.body.data.items;
+        expect(items.map((p) => p.placeId)).toEqual([
+          'ChIJ_BROKEN_place',
+          'ChIJ_test_place_0003',
+        ]);
+        // From the details cache:
+        expect(items[1]).toEqual(
+          expect.objectContaining({
+            name: 'Trattoria Test',
+            city: 'Palm Desert',
+            likesCount: 3,
+            isLiked: true,
+            isFavorite: true,
+            utcOffsetMinutes: -420,
+          }),
+        );
+        expect(items[1].photos[0].url).toBe(
+          `https://api.test/api/places/photo/${PHOTO_REF}?w=800`,
+        );
+        // From the restaurants row only (Google was down when it was saved):
+        expect(items[0]).toEqual({
+          placeId: 'ChIJ_BROKEN_place',
+          name: 'Unknown Restaurant',
+          rating: null,
+          userRatingsTotal: null,
+          address: null,
+          city: null,
+          lat: 0,
+          lng: 0,
+          categoryLabel: null,
+          priceLevel: null,
+          photos: [],
+          openingHours: null,
+          utcOffsetMinutes: null,
+          distanceM: null,
+          likesCount: 1,
+          isLiked: true,
+          isFavorite: true,
+        });
+        const guest = await http
+          .get(`/api/users/${alice.id}/favorites?limit=1`)
+          .expect(200);
+        expect(guest.body.data.items[0].isFavorite).toBe(false);
+        expect(guest.body.data.nextCursor).toEqual(expect.any(String));
+        expect(JSON.stringify(res.body)).not.toContain('test-places-key');
+      });
+
+      it('PUT /api/users/:userId/follow is idempotent and notifies once', async () => {
+        await ds.query(`TRUNCATE push_outbox RESTART IDENTITY`);
+        await http
+          .put(`/api/users/${bob.id}/follow`)
+          .set(auth(bob))
+          .send({ following: true })
+          .expect(400);
+        await http
+          .put(`/api/users/999999/follow`)
+          .set(auth(bob))
+          .send({ following: true })
+          .expect(404);
+        for (let i = 0; i < 2; i++) {
+          const res = await http
+            .put(`/api/users/${carol.id}/follow`)
+            .set(auth(bob))
+            .send({ following: true })
+            .expect(200);
+          expect(res.body.data).toEqual({ following: true, followersCount: 2 });
+        }
+        expect((await outbox()).map((j) => [j.user_id, j.type])).toEqual([
+          [carol.id, 'follow'],
+        ]);
+        const off = await http
+          .put(`/api/users/${carol.id}/follow`)
+          .set(auth(bob))
+          .send({ following: false })
+          .expect(200);
+        expect(off.body.data).toEqual({ following: false, followersCount: 1 });
+        await http
+          .put(`/api/users/${carol.id}/follow`)
+          .set(auth(bob))
+          .send({ following: false })
+          .expect(200);
+      });
+
+      it('PATCH /api/me updates the profile; a taken userName is 409', async () => {
+        await http.patch('/api/me').send({ bio: 'x' }).expect(401);
+        const taken = await http
+          .patch('/api/me')
+          .set(auth(alice))
+          .send({ userName: 'BOB' })
+          .expect(409);
+        expect(taken.body).toEqual(
+          expect.objectContaining({
+            success: false,
+            message: 'That username is taken',
+          }),
+        );
+        await http
+          .patch('/api/me')
+          .set(auth(alice))
+          .send({ bio: 'x'.repeat(161) })
+          .expect(400);
+        await http
+          .patch('/api/me')
+          .set(auth(alice))
+          .send({ userName: 'no spaces allowed' })
+          .expect(400);
+        await http
+          .patch('/api/me')
+          .set(auth(alice))
+          .send({ email: 'x@y.z' })
+          .expect(400);
+        for (const avatarUrl of [
+          '../package.json',
+          'https://evil.example/x.jpg',
+          '/storage/missing.jpg',
+        ]) {
+          await http
+            .patch('/api/me')
+            .set(auth(alice))
+            .send({ avatarUrl })
+            .expect(400);
+        }
+
+        const upload = await http
+          .post('/api/imageupload')
+          .set(auth(alice))
+          .attach('image', JPEG, {
+            filename: 'me.jpg',
+            contentType: 'image/jpeg',
+          })
+          .expect(201);
+        const res = await http
+          .patch('/api/me')
+          .set(auth(alice))
+          .send({
+            fullName: '  Alice A.  ',
+            userName: 'alice.a',
+            bio: 'Pasta hunter',
+            avatarUrl: `https://api.test/storage/${upload.body.url}`,
+          })
+          .expect(200);
+        expect(res.body.data).toEqual({
+          id: String(alice.id),
+          userName: 'alice.a',
+          fullName: 'Alice A.',
+          avatarUrl: `https://api.test/storage/${upload.body.url}`,
+          bio: 'Pasta hunter',
+        });
+        // Keeping your own name (any case) is fine; empty bio clears it.
+        const again = await http
+          .patch('/api/me')
+          .set(auth(alice))
+          .send({ userName: 'Alice.A', bio: '' })
+          .expect(200);
+        expect(again.body.data).toEqual(
+          expect.objectContaining({ userName: 'Alice.A', bio: null }),
+        );
+        const cleared = await http
+          .patch('/api/me')
+          .set(auth(alice))
+          .send({ avatarUrl: null })
+          .expect(200);
+        expect(cleared.body.data.avatarUrl).toBeNull();
+      });
+
+      it('DELETE /api/me removes the account, its rows everywhere and its uploads', async () => {
+        const dave = await register('dave@example.com', 'Dave');
+        const upload = await http
+          .post('/api/imageupload')
+          .set(auth(dave))
+          .attach('image', JPEG, {
+            filename: 'd.jpg',
+            contentType: 'image/jpeg',
+          })
+          .expect(201);
+        const orphan = await http
+          .post('/api/imageupload')
+          .set(auth(dave))
+          .attach('image', JPEG, {
+            filename: 'o.jpg',
+            contentType: 'image/jpeg',
+          })
+          .expect(201);
+        // A legacy upload (no owner in the name) used by Dave's post, and
+        // one also used by someone else's post (must stay).
+        fs.writeFileSync(path.join(STORAGE, 'image-legacy-dave-1.jpg'), JPEG);
+        fs.writeFileSync(path.join(STORAGE, 'image-legacy-shared-1.jpg'), JPEG);
+        const post = await http
+          .post('/api/post-save')
+          .set(auth(dave))
+          .send({
+            description: 'Dave was here',
+            images: [
+              upload.body.url,
+              'image-legacy-dave-1.jpg',
+              'image-legacy-shared-1.jpg',
+            ],
+            rating: 3,
+            restaurant_id: PLACE_ID,
+          })
+          .expect(201);
+        await ds.query(
+          `UPDATE posts SET images = '["image-legacy-shared-1.jpg"]' WHERE user_id = $1`,
+          [bob.id],
+        );
+        const [bobPost] = await ds.query(
+          `SELECT id FROM posts WHERE user_id = $1 LIMIT 1`,
+          [bob.id],
+        );
+        await http
+          .put(`/api/posts/${bobPost.id}/like`)
+          .set(auth(dave))
+          .send({ liked: true })
+          .expect(200);
+        await http
+          .post(`/api/posts/${bobPost.id}/comments`)
+          .set(auth(dave))
+          .send({ text: 'nice' })
+          .expect(201);
+        await http
+          .put(`/api/posts/${post.body.data.postId}/like`)
+          .set(auth(bob))
+          .send({ liked: true })
+          .expect(200);
+        await http
+          .put(`/api/users/${alice.id}/follow`)
+          .set(auth(dave))
+          .send({ following: true })
+          .expect(200);
+        await http
+          .put(`/api/users/${dave.id}/follow`)
+          .set(auth(carol))
+          .send({ following: true })
+          .expect(200);
+        await http
+          .put(`/api/places/${PLACE_2}/favorite`)
+          .set(auth(dave))
+          .send({ favorite: true })
+          .expect(200);
+        await http
+          .post('/api/device-tokens')
+          .set(auth(dave))
+          .send({ token: 'tok-dave', platform: 'ios' })
+          .expect(201);
+        await http
+          .post('/api/user-setting')
+          .set(auth(dave))
+          .send({ notifications_enabled: true })
+          .expect(201);
+        await http
+          .patch('/api/me')
+          .set(auth(dave))
+          .send({ avatarUrl: `/storage/${orphan.body.url}` })
+          .expect(200);
+        const before = await ds.query(
+          `SELECT likes_count, comments_count FROM posts WHERE id = $1`,
+          [bobPost.id],
+        );
+
+        await http.delete('/api/me').expect(401);
+        const res = await http.delete('/api/me').set(auth(dave)).expect(200);
+        expect(res.body).toEqual({ success: true, data: { deleted: true } });
+
+        const leftovers = await ds.query(
+          `SELECT
+             (SELECT COUNT(*) FROM users WHERE id = $1)
+           + (SELECT COUNT(*) FROM posts WHERE user_id = $1)
+           + (SELECT COUNT(*) FROM likes WHERE user_id = $1)
+           + (SELECT COUNT(*) FROM comments WHERE user_id = $1)
+           + (SELECT COUNT(*) FROM favorites WHERE user_id = $1)
+           + (SELECT COUNT(*) FROM follows WHERE follower_id = $1 OR following_id = $1)
+           + (SELECT COUNT(*) FROM device_tokens WHERE user_id = $1)
+           + (SELECT COUNT(*) FROM push_outbox WHERE user_id = $1)
+           + (SELECT COUNT(*) FROM user_settings WHERE user_id = $1)
+           + (SELECT COUNT(*) FROM notifications WHERE user_id = $1 OR actor_user_id = $1)
+             AS n`,
+          [dave.id],
+        );
+        expect(Number(leftovers[0].n)).toBe(0);
+        const after = await ds.query(
+          `SELECT likes_count, comments_count FROM posts WHERE id = $1`,
+          [bobPost.id],
+        );
+        expect(after[0].likes_count).toBe(before[0].likes_count - 1);
+        expect(after[0].comments_count).toBe(before[0].comments_count - 1);
+
+        const exists = (f: string) => fs.existsSync(path.join(STORAGE, f));
+        expect(exists(upload.body.url)).toBe(false);
+        expect(exists(orphan.body.url)).toBe(false);
+        expect(exists('image-legacy-dave-1.jpg')).toBe(false);
+        expect(exists('image-legacy-shared-1.jpg')).toBe(true);
+
+        await http.get(`/api/users/${dave.id}`).expect(404);
+        await http.delete('/api/me').set(auth(dave)).expect(404);
       });
     });
   },

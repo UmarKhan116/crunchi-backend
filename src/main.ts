@@ -43,6 +43,7 @@ async function bootstrap() {
     .addTag('Bootstrap', 'Single startup call')
     .addTag('Feed', 'Home feed: nearby places and posts')
     .addTag('Places', 'Google Places proxy (key stays on the server)')
+    .addTag('Users', 'User search, profiles, follow, PATCH/DELETE /api/me')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

@@ -24,6 +24,7 @@ import { AuthCommonModule } from './common/auth/auth-common.module';
 import { PlacesModule } from './places/places.module';
 import { BootstrapModule } from './bootstrap/bootstrap.module';
 import { EngagementModule } from './engagement/engagement.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { EngagementModule } from './engagement/engagement.module';
     PlacesModule,
     BootstrapModule,
     EngagementModule,
+    UsersModule,
   ],
   controllers: [AppController],
   providers: [AppService],
