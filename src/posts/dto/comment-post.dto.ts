@@ -1,10 +1,11 @@
-import { IsInt, IsString, IsOptional } from 'class-validator';
+import { IsInt, IsString, IsOptional, MaxLength } from 'class-validator';
 
 export class CommentPostDto {
   @IsInt()
   post_id: number;
 
   @IsString()
+  @MaxLength(500)
   comment: string;
 
   @IsOptional()

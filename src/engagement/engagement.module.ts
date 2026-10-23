@@ -9,6 +9,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { EngagementController } from './engagement.controller';
 import { PostLikesService } from './post-likes.service';
 import { PlaceSavesService } from './place-saves.service';
+import { CommentsService } from './comments.service';
 
 /**
  * Milestone 2 interactions on posts and places: set-state likes and
@@ -22,6 +23,6 @@ import { PlaceSavesService } from './place-saves.service';
     NotificationsModule,
   ],
   controllers: [EngagementController],
-  providers: [PostLikesService, PlaceSavesService],
+  providers: [PostLikesService, PlaceSavesService, CommentsService],
 })
 export class EngagementModule {}

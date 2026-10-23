@@ -1,9 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
+  Get,
   NotFoundException,
   Param,
+  Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -14,10 +18,15 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
+import { CursorQueryDto, pageLimit } from '../common/dto/cursor-query.dto';
+import { BaseUrl } from '../common/utils/public-url';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ok } from '../common/http/api-envelope';
 import { parseId } from '../common/utils/sql';
 import { SetFavoriteDto, SetLikedDto } from './dto/set-state.dto';
+import { CreateCommentDto } from './dto/create-comment.dto';
+import { CommentsService } from './comments.service';
 import { PostLikesService } from './post-likes.service';
 import { PlaceSavesService } from './place-saves.service';
 
@@ -31,7 +40,14 @@ export class EngagementController {
   constructor(
     private readonly postLikes: PostLikesService,
     private readonly placeSaves: PlaceSavesService,
+    private readonly comments: CommentsService,
   ) {}
+
+  private postId(value: string): number {
+    const id = parseId(value);
+    if (!id) throw new NotFoundException('Post not found');
+    return id;
+  }
 
   @Put('posts/:postId/like')
   @UseGuards(JwtAuthGuard)
@@ -48,9 +64,83 @@ export class EngagementController {
     @Param('postId') postId: string,
     @Body() body: SetLikedDto,
   ) {
-    const id = parseId(postId);
-    if (!id) throw new NotFoundException('Post not found');
-    return ok(await this.postLikes.setLiked(userId, id, body.liked));
+    return ok(
+      await this.postLikes.setLiked(userId, this.postId(postId), body.liked),
+    );
+  }
+
+  // ------------------------------------------------------------ comments
+
+  @Get('posts/:postId/comments')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Comments on a post, oldest first (auth optional)',
+    description: 'data: { items: Comment[]; nextCursor }',
+  })
+  @ApiParam({ name: 'postId' })
+  @ApiResponse({ status: 200, description: 'Comments' })
+  @ApiResponse({ status: 404, description: 'Unknown or hidden post' })
+  async listComments(
+    @Param('postId') postId: string,
+    @Query() q: CursorQueryDto,
+    @CurrentUser('id') userId: number | undefined,
+    @BaseUrl() baseUrl: string,
+  ) {
+    return ok(
+      await this.comments.list(
+        this.postId(postId),
+        userId,
+        q.cursor,
+        pageLimit(q.limit),
+        baseUrl,
+      ),
+    );
+  }
+
+  @Post('posts/:postId/comments')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Comment on a post',
+    description: 'Body { text } (1–500 chars). data: Comment',
+  })
+  @ApiParam({ name: 'postId' })
+  @ApiResponse({ status: 201, description: 'Comment created' })
+  async createComment(
+    @Param('postId') postId: string,
+    @Body() body: CreateCommentDto,
+    @CurrentUser('id') userId: number,
+    @BaseUrl() baseUrl: string,
+  ) {
+    return ok(
+      await this.comments.create(
+        this.postId(postId),
+        userId,
+        body.text,
+        baseUrl,
+      ),
+    );
+  }
+
+  @Delete('comments/:commentId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Delete a comment (author or post owner)',
+    description: 'data: { ok: true, commentsCount }',
+  })
+  @ApiParam({ name: 'commentId' })
+  @ApiResponse({ status: 200, description: 'Deleted' })
+  @ApiResponse({ status: 403, description: 'Not yours' })
+  @ApiResponse({ status: 404, description: 'Unknown comment' })
+  async deleteComment(
+    @Param('commentId') commentId: string,
+    @CurrentUser('id') userId: number,
+  ) {
+    const id = parseId(commentId);
+    if (!id) throw new NotFoundException('Comment not found');
+    return ok(await this.comments.remove(id, userId));
   }
 
   @Put('places/:placeId/like')

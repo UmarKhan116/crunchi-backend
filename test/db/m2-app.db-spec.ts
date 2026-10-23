@@ -818,5 +818,164 @@ describeDb(
         expect(off.body.favorited).toBe(false);
       });
     });
+
+    // ---------------------------------------------------------- comments
+
+    describe('comments', () => {
+      let postId: number;
+      const ids: string[] = [];
+
+      beforeAll(async () => {
+        const [row] = await ds.query(
+          `SELECT id FROM posts WHERE user_id = $1 ORDER BY id LIMIT 1`,
+          [bob.id],
+        );
+        postId = row.id;
+        await ds.query(`TRUNCATE push_outbox RESTART IDENTITY`);
+      });
+
+      it('POST validates 1–500 chars and needs login', async () => {
+        await http
+          .post(`/api/posts/${postId}/comments`)
+          .send({ text: 'hi' })
+          .expect(401);
+        for (const text of ['', '   ', 'x'.repeat(501)]) {
+          const res = await http
+            .post(`/api/posts/${postId}/comments`)
+            .set(auth(alice))
+            .send({ text })
+            .expect(400);
+          expect(res.body.errors.text).toBeDefined();
+        }
+        await http
+          .post(`/api/posts/999999/comments`)
+          .set(auth(alice))
+          .send({ text: 'hi' })
+          .expect(404);
+      });
+
+      it('creates comments, counts them and notifies the post owner through the outbox', async () => {
+        const res = await http
+          .post(`/api/posts/${postId}/comments`)
+          .set(auth(alice))
+          .send({ text: '  Looks <b>amazing</b>!  ' })
+          .expect(201);
+        expect(res.body).toEqual({
+          success: true,
+          data: {
+            id: expect.any(String),
+            text: 'Looks <b>amazing</b>!',
+            user: {
+              id: String(alice.id),
+              userName: 'alice',
+              fullName: 'Alice',
+              avatarUrl: null,
+            },
+            createdAt: expect.stringMatching(/Z$/),
+            canDelete: true,
+          },
+        });
+        ids.push(res.body.data.id);
+        for (const [who, text] of [
+          [carol, 'second'],
+          [bob, 'owner reply'],
+          [alice, 'x'.repeat(500)],
+        ] as [Who, string][]) {
+          const r = await http
+            .post(`/api/posts/${postId}/comments`)
+            .set(auth(who))
+            .send({ text })
+            .expect(201);
+          ids.push(r.body.data.id);
+        }
+        const [{ comments_count }] = await ds.query(
+          `SELECT comments_count FROM posts WHERE id = $1`,
+          [postId],
+        );
+        expect(comments_count).toBe(4);
+        // Alice (twice) and Carol notify Bob; Bob's own reply does not.
+        const jobs = await outbox();
+        expect(jobs.map((j) => [j.user_id, j.type])).toEqual([
+          [bob.id, 'comment'],
+          [bob.id, 'comment'],
+          [bob.id, 'comment'],
+        ]);
+        expect(jobs[0].payload.data.link).toBe(`/p/${postId}`);
+      });
+
+      it('GET lists oldest first with canDelete per viewer, for guests too', async () => {
+        const guest = await http
+          .get(`/api/posts/${postId}/comments?limit=2`)
+          .expect(200);
+        expect(guest.body.data.items.map((c) => c.id)).toEqual(ids.slice(0, 2));
+        expect(guest.body.data.items.every((c) => c.canDelete === false)).toBe(
+          true,
+        );
+        const next = await http
+          .get(
+            `/api/posts/${postId}/comments?limit=2&cursor=${guest.body.data.nextCursor}`,
+          )
+          .expect(200);
+        expect(next.body.data.items.map((c) => c.id)).toEqual(ids.slice(2, 4));
+        expect(next.body.data.nextCursor).toBeNull();
+
+        const asCarol = await http
+          .get(`/api/posts/${postId}/comments`)
+          .set(auth(carol))
+          .expect(200);
+        expect(asCarol.body.data.items.map((c) => c.canDelete)).toEqual([
+          false,
+          true,
+          false,
+          false,
+        ]);
+        // The post owner may delete every comment.
+        const asBob = await http
+          .get(`/api/posts/${postId}/comments`)
+          .set(auth(bob))
+          .expect(200);
+        expect(asBob.body.data.items.every((c) => c.canDelete)).toBe(true);
+        expect(JSON.stringify(asBob.body)).not.toMatch(
+          /@example\.com|password/,
+        );
+      });
+
+      it('DELETE: author or post owner only', async () => {
+        await http.delete(`/api/comments/${ids[0]}`).expect(401);
+        await http
+          .delete(`/api/comments/${ids[0]}`)
+          .set(auth(carol))
+          .expect(403);
+        const own = await http
+          .delete(`/api/comments/${ids[1]}`)
+          .set(auth(carol))
+          .expect(200);
+        expect(own.body).toEqual({
+          success: true,
+          data: { ok: true, commentsCount: 3 },
+        });
+        const byOwner = await http
+          .delete(`/api/comments/${ids[0]}`)
+          .set(auth(bob))
+          .expect(200);
+        expect(byOwner.body.data.commentsCount).toBe(2);
+        await http.delete(`/api/comments/${ids[0]}`).set(auth(bob)).expect(404);
+        await http.delete(`/api/comments/abc`).set(auth(bob)).expect(404);
+      });
+
+      it('legacy comment-post still works and now caps the length at 500', async () => {
+        const ok = await http
+          .post('/api/comment-post')
+          .set(auth(carol))
+          .send({ post_id: postId, comment: 'legacy' })
+          .expect(201);
+        expect(ok.body.success).toBe(true);
+        await http
+          .post('/api/comment-post')
+          .set(auth(carol))
+          .send({ post_id: postId, comment: 'x'.repeat(501) })
+          .expect(400);
+      });
+    });
   },
 );
