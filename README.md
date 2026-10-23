@@ -367,19 +367,35 @@ npm run test:cov
 ### Database tests (throwaway Postgres only)
 
 `npm run test:db` rebuilds the schema from every migration, checks the
-Milestone 1 migrations up and down (no drift against the entities), the SQL
-distance queries, cascades, and drives every Milestone 1 endpoint over HTTP
-with Google mocked. It reads `TEST_DB_*` only and never loads `.env`; it
+migrations up and down (no drift against the entities), the SQL distance
+queries, cascades, the push outbox (SKIP LOCKED claims, retries), and drives
+every Milestone 1 and 2 endpoint over HTTP with Google (`fetch`) and
+`firebase-admin` mocked. It reads `TEST_DB_*` only and never loads `.env`; it
 **drops the `public` schema** of the database it points at.
 
 ```bash
-docker run -d --rm --name be-m1-pg -e POSTGRES_PASSWORD=test \
-  -e POSTGRES_DB=crunchy_test -p 55431:5432 postgres:16
-TEST_DB_PORT=55431 npm run test:db
+docker run -d --rm --name be-m2-pg -e POSTGRES_PASSWORD=test \
+  -e POSTGRES_DB=crunchy_test -p 55432:5432 postgres:16
+TEST_DB_PORT=55432 npm run test:db
 # Show what migration:generate would still change (should be nothing):
-TEST_DB_PORT=55431 npx ts-node test/db/schema-diff.ts
-docker stop be-m1-pg
+TEST_DB_PORT=55432 npx ts-node test/db/schema-diff.ts
+docker stop be-m2-pg
 ```
+
+### Push notifications (Milestone 2)
+
+Notifications are saved together with a `push_outbox` row; a worker in the
+API process (`@nestjs/schedule`, every 2 s) claims rows with
+`FOR UPDATE SKIP LOCKED`, sends them to every `device_tokens` row of the user
+with FCM, deletes dead tokens and retries failures 3 times (5/20/80 s).
+`PUSH_WORKER_ENABLED=false` turns the worker off on an instance.
+
+### HEIC uploads
+
+`POST /api/imageupload` converts HEIC/HEIF photos to JPEG with
+`heic-convert` (pure JavaScript, run in a worker thread). Sharp's prebuilt
+binaries cannot decode HEIC, so it is not used. If `heic-convert` is missing,
+HEIC uploads are rejected with 415.
 
 ## 📝 Code Quality
 
