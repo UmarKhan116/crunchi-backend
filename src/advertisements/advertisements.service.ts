@@ -48,18 +48,21 @@ export class AdvertisementsService {
     }
   }
 
+  /**
+   * Active ads the app can render. Ads without type/file_name predate those
+   * fields and are skipped.
+   */
+  async findActiveAds(): Promise<Advertisement[]> {
+    const advertisements = await this.advertisementRepository.find({
+      where: { is_active: true },
+      order: { created_at: 'DESC' },
+    });
+    return advertisements.filter((ad) => ad.type && ad.file_name);
+  }
+
   async getAdvertisements() {
     try {
-      const advertisements = await this.advertisementRepository.find({
-        where: { is_active: true },
-        order: { created_at: 'DESC' },
-      });
-
-      // Filter out ads that don't have required fields (type and file_name)
-      // This handles legacy ads created before these fields were added
-      const validAdvertisements = advertisements.filter(
-        (ad) => ad.type && ad.file_name,
-      );
+      const validAdvertisements = await this.findActiveAds();
 
       return {
         success: true,

@@ -10,6 +10,14 @@ export class CategoriesService {
     private readonly categoryRepository: Repository<Category>,
   ) {}
 
+  /** Active categories as entities (for /bootstrap and /feed). */
+  async findActive(): Promise<Category[]> {
+    return this.categoryRepository.find({
+      where: { is_active: true },
+      order: { name: 'ASC' },
+    });
+  }
+
   async findAll() {
     try {
       const categories = await this.categoryRepository.find({

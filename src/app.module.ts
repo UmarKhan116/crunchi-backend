@@ -21,6 +21,7 @@ import { getDatabaseConfig } from './config/database.config';
 import { AdminModule } from './admin/admin.module';
 import { AuthCommonModule } from './common/auth/auth-common.module';
 import { PlacesModule } from './places/places.module';
+import { BootstrapModule } from './bootstrap/bootstrap.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { PlacesModule } from './places/places.module';
     SessionModule,
     AdminModule,
     PlacesModule,
+    BootstrapModule,
   ],
   controllers: [AppController],
   providers: [AppService],

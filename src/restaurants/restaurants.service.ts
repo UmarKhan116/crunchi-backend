@@ -190,6 +190,22 @@ export class RestaurantsService {
     }
   }
 
+  /**
+   * Google place ids the user has favourited. The legacy `favoriteplace` and
+   * `googlelike` endpoints both write this table, so this is also the list of
+   * liked places.
+   */
+  async favoritePlaceIds(userId: number): Promise<string[]> {
+    const rows: { google_place_id: string }[] = await this.favoriteRepository
+      .createQueryBuilder('f')
+      .innerJoin('f.restaurant', 'r')
+      .select('DISTINCT r.google_place_id', 'google_place_id')
+      .where('f.user_id = :userId', { userId })
+      .andWhere('r.google_place_id IS NOT NULL')
+      .getRawMany();
+    return rows.map((r) => r.google_place_id);
+  }
+
   async getUserFavorites(userId?: number) {
     try {
       // Get all favorites by user
