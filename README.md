@@ -349,7 +349,7 @@ The API supports image uploads for posts and user profiles. Files are handled us
 
 ## 🌍 CORS Configuration
 
-CORS is enabled for frontend integration. Update the `CORS_ORIGIN` environment variable to match your frontend URL.
+CORS origins come from `CORS_ORIGINS` (comma-separated). When it is unset or `*`, every origin is allowed.
 
 ## 🧪 Testing
 
@@ -362,6 +362,23 @@ npm run test:e2e
 
 # Test coverage
 npm run test:cov
+```
+
+### Database tests (throwaway Postgres only)
+
+`npm run test:db` rebuilds the schema from every migration, checks the
+Milestone 1 migrations up and down (no drift against the entities), the SQL
+distance queries, cascades, and drives every Milestone 1 endpoint over HTTP
+with Google mocked. It reads `TEST_DB_*` only and never loads `.env`; it
+**drops the `public` schema** of the database it points at.
+
+```bash
+docker run -d --rm --name be-m1-pg -e POSTGRES_PASSWORD=test \
+  -e POSTGRES_DB=crunchy_test -p 55431:5432 postgres:16
+TEST_DB_PORT=55431 npm run test:db
+# Show what migration:generate would still change (should be nothing):
+TEST_DB_PORT=55431 npx ts-node test/db/schema-diff.ts
+docker stop be-m1-pg
 ```
 
 ## 📝 Code Quality
