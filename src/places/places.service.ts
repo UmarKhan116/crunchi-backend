@@ -453,7 +453,7 @@ export class PlacesService {
       utc_offset_minutes: number | null;
     }[] = await this.restaurants.query(
       `SELECT r.google_place_id AS place_id,
-              COUNT(f.id)::int AS likes_count,
+              COUNT(DISTINCT f.user_id)::int AS likes_count,
               COALESCE(BOOL_OR(f.user_id = $2), false) AS mine,
               (ARRAY_AGG(r.opening_periods) FILTER (WHERE r.opening_periods IS NOT NULL))[1] AS opening_periods,
               (ARRAY_AGG(r.utc_offset_minutes) FILTER (WHERE r.utc_offset_minutes IS NOT NULL))[1] AS utc_offset_minutes

@@ -4,6 +4,7 @@ import { Interval } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
 import { PushOutbox } from '../../entities/push-outbox.entity';
 import { PushSender } from './push-sender.service';
+import { returnedRows } from '../../common/utils/sql';
 
 export const PUSH_POLL_INTERVAL_MS = 2000;
 export const PUSH_BATCH_SIZE = 100;
@@ -15,19 +16,6 @@ export const PUSH_STALE_LOCK_MS = 5 * 60_000;
 /** Backoff before retry n (1-based): 5 s, 20 s, 80 s. */
 export function retryDelayMs(attempts: number): number {
   return 5000 * 4 ** Math.max(0, attempts - 1);
-}
-
-/** TypeORM returns [rows, count] for UPDATE ... RETURNING on Postgres. */
-function returnedRows(result: any): any[] {
-  if (
-    Array.isArray(result) &&
-    result.length === 2 &&
-    Array.isArray(result[0]) &&
-    typeof result[1] === 'number'
-  ) {
-    return result[0];
-  }
-  return Array.isArray(result) ? result : [];
 }
 
 /**

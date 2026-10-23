@@ -526,5 +526,297 @@ describeDb(
         expect(JSON.stringify(res.body)).not.toMatch(/"password"/);
       });
     });
+
+    // ------------------------------------------------- set-state likes
+
+    describe('set-state likes and favourites', () => {
+      let postId: number;
+      const PLACE_2 = 'ChIJ_test_place_0002';
+
+      beforeAll(async () => {
+        const res = await http
+          .post('/api/post-save')
+          .set(auth(bob))
+          .send({
+            description: 'Great carbonara',
+            images: ['image-u2-1-a.jpg'],
+            category_id: 1,
+            rating: 5,
+            latitude: ORIGIN.lat,
+            longitude: ORIGIN.lng,
+            restaurant: 'Trattoria Test',
+            restaurant_id: PLACE_ID,
+          })
+          .expect(201);
+        postId = res.body.post.id;
+        await ds.query(`TRUNCATE push_outbox RESTART IDENTITY`);
+      });
+
+      it('PUT /api/posts/:postId/like validates and needs login', async () => {
+        await http
+          .put(`/api/posts/${postId}/like`)
+          .send({ liked: true })
+          .expect(401);
+        await http
+          .put(`/api/posts/${postId}/like`)
+          .set(auth(alice))
+          .send({ liked: 'yes' })
+          .expect(400);
+        await http
+          .put(`/api/posts/abc/like`)
+          .set(auth(alice))
+          .send({ liked: true })
+          .expect(404);
+        await http
+          .put(`/api/posts/999999/like`)
+          .set(auth(alice))
+          .send({ liked: true })
+          .expect(404);
+      });
+
+      it('is idempotent, counts atomically and pushes once on false → true', async () => {
+        // Five replays at once (an offline queue flushing).
+        const results = await Promise.all(
+          Array.from({ length: 5 }, () =>
+            http
+              .put(`/api/posts/${postId}/like`)
+              .set(auth(alice))
+              .send({ liked: true })
+              .expect(200),
+          ),
+        );
+        for (const r of results) expect(r.body.data.liked).toBe(true);
+        const again = await http
+          .put(`/api/posts/${postId}/like`)
+          .set(auth(alice))
+          .send({ liked: true })
+          .expect(200);
+        expect(again.body).toEqual({
+          success: true,
+          data: { liked: true, likesCount: 1 },
+        });
+        const jobs = await outbox();
+        expect(jobs).toHaveLength(1);
+        expect(jobs[0]).toEqual(
+          expect.objectContaining({ user_id: bob.id, type: 'like' }),
+        );
+        expect(jobs[0].payload.data).toEqual(
+          expect.objectContaining({
+            type: 'like',
+            postId: String(postId),
+            userId: String(alice.id),
+            link: `/p/${postId}`,
+          }),
+        );
+
+        const off = await http
+          .put(`/api/posts/${postId}/like`)
+          .set(auth(alice))
+          .send({ liked: false })
+          .expect(200);
+        expect(off.body.data).toEqual({ liked: false, likesCount: 0 });
+        await http
+          .put(`/api/posts/${postId}/like`)
+          .set(auth(alice))
+          .send({ liked: false })
+          .expect(200);
+        const [{ likes_count }] = await ds.query(
+          `SELECT likes_count FROM posts WHERE id = $1`,
+          [postId],
+        );
+        expect(likes_count).toBe(0);
+        expect(await outbox()).toHaveLength(1);
+      });
+
+      it('liking your own post never pushes', async () => {
+        await http
+          .put(`/api/posts/${postId}/like`)
+          .set(auth(bob))
+          .send({ liked: true })
+          .expect(200);
+        expect(await outbox()).toHaveLength(1);
+        await http
+          .put(`/api/posts/${postId}/like`)
+          .set(auth(bob))
+          .send({ liked: false })
+          .expect(200);
+      });
+
+      it('the legacy post_like toggle still works', async () => {
+        const on = await http
+          .post('/api/post_like')
+          .set(auth(carol))
+          .send({ post_id: postId })
+          .expect(201);
+        expect(on.body.liked).toBe(true);
+        const off = await http
+          .post('/api/post_like')
+          .set(auth(carol))
+          .send({ post_id: postId })
+          .expect(201);
+        expect(off.body.liked).toBe(false);
+      });
+
+      it('PUT /api/places/:placeId/favorite fills the restaurant row and is idempotent', async () => {
+        const res = await http
+          .put(`/api/places/${PLACE_2}/favorite`)
+          .set(auth(alice))
+          .send({ favorite: true })
+          .expect(200);
+        expect(res.body).toEqual({ success: true, data: { favorite: true } });
+        await http
+          .put(`/api/places/${PLACE_2}/favorite`)
+          .set(auth(alice))
+          .send({ favorite: true })
+          .expect(200);
+        const rows = await ds.query(
+          `SELECT r.name, r.address, r.google_photo_reference, r.utc_offset_minutes,
+                  r.opening_periods IS NOT NULL AS has_hours
+             FROM restaurants r WHERE r.google_place_id = $1`,
+          [PLACE_2],
+        );
+        expect(rows).toEqual([
+          {
+            name: 'Trattoria Test',
+            address: '1226 University Dr, Palm Desert, CA 92211, USA',
+            google_photo_reference: PHOTO_REF,
+            utc_offset_minutes: -420,
+            has_hours: true,
+          },
+        ]);
+        const [{ n }] = await ds.query(
+          `SELECT COUNT(*)::int n FROM favorites f JOIN restaurants r ON r.id = f.restaurant_id
+            WHERE r.google_place_id = $1`,
+          [PLACE_2],
+        );
+        expect(n).toBe(1);
+      });
+
+      it('a place like and a favourite are one saved state', async () => {
+        const like = await http
+          .put(`/api/places/${PLACE_2}/like`)
+          .set(auth(alice))
+          .send({ liked: true })
+          .expect(200);
+        expect(like.body.data).toEqual({ liked: true, likesCount: 1 });
+        await http
+          .put(`/api/places/${PLACE_2}/like`)
+          .set(auth(bob))
+          .send({ liked: true })
+          .expect(200);
+
+        const details = await http
+          .get(`/api/places/${PLACE_2}`)
+          .set(auth(alice))
+          .expect(200);
+        expect(details.body.data).toEqual(
+          expect.objectContaining({
+            isLiked: true,
+            isFavorite: true,
+            likesCount: 2,
+          }),
+        );
+        const boot = await http
+          .get('/api/bootstrap')
+          .set(auth(alice))
+          .expect(200);
+        expect(boot.body.data.likedPlaceIds).toEqual(
+          boot.body.data.favoritePlaceIds,
+        );
+        expect(boot.body.data.favoritePlaceIds).toContain(PLACE_2);
+
+        // Un-liking removes the favourite too.
+        const unlike = await http
+          .put(`/api/places/${PLACE_2}/like`)
+          .set(auth(alice))
+          .send({ liked: false })
+          .expect(200);
+        expect(unlike.body.data).toEqual({ liked: false, likesCount: 1 });
+        const after = await http
+          .get(`/api/places/${PLACE_2}`)
+          .set(auth(alice))
+          .expect(200);
+        expect(after.body.data.isFavorite).toBe(false);
+        await http
+          .put(`/api/places/${PLACE_2}/favorite`)
+          .set(auth(alice))
+          .send({ favorite: false })
+          .expect(200);
+        // No pushes for places (they have no owner).
+        expect(
+          (await outbox()).every(
+            (j) => j.type !== 'like' || j.user_id === bob.id,
+          ),
+        ).toBe(true);
+      });
+
+      it('concurrent first saves create one restaurant row', async () => {
+        const PLACE_3 = 'ChIJ_test_place_0003';
+        await Promise.all(
+          [alice, bob, carol].map((who) =>
+            http
+              .put(`/api/places/${PLACE_3}/favorite`)
+              .set(auth(who))
+              .send({ favorite: true })
+              .expect(200),
+          ),
+        );
+        const rows = await ds.query(
+          `SELECT id FROM restaurants WHERE google_place_id = $1`,
+          [PLACE_3],
+        );
+        expect(rows).toHaveLength(1);
+        const res = await http
+          .put(`/api/places/${PLACE_3}/like`)
+          .set(auth(alice))
+          .send({ liked: true })
+          .expect(200);
+        expect(res.body.data.likesCount).toBe(3);
+      });
+
+      it('unknown places 404; a Google outage still saves (placeholder row)', async () => {
+        await http
+          .put('/api/places/ChIJ_MISSING_place/favorite')
+          .set(auth(alice))
+          .send({ favorite: true })
+          .expect(404);
+        await http
+          .put('/api/places/bad%20id!/favorite')
+          .set(auth(alice))
+          .send({ favorite: true })
+          .expect(400);
+        const res = await http
+          .put('/api/places/ChIJ_BROKEN_place/favorite')
+          .set(auth(alice))
+          .send({ favorite: true })
+          .expect(200);
+        expect(res.body.data).toEqual({ favorite: true });
+        const [row] = await ds.query(
+          `SELECT name FROM restaurants WHERE google_place_id = 'ChIJ_BROKEN_place'`,
+        );
+        expect(row.name).toBe('Unknown Restaurant');
+      });
+
+      it('legacy googlelike / favoriteplace toggles still work on the same state', async () => {
+        const on = await http
+          .post('/api/googlelike')
+          .set(auth(carol))
+          .send({ restaurant_id: PLACE_2, name: 'Trattoria Test' })
+          .expect(201);
+        expect(on.body.liked).toBe(true);
+        const res = await http
+          .put(`/api/places/${PLACE_2}/favorite`)
+          .set(auth(carol))
+          .send({ favorite: true })
+          .expect(200);
+        expect(res.body.data.favorite).toBe(true);
+        const off = await http
+          .post('/api/favoriteplace')
+          .set(auth(carol))
+          .send({ google_place_id: PLACE_2 })
+          .expect(201);
+        expect(off.body.favorited).toBe(false);
+      });
+    });
   },
 );

@@ -23,6 +23,7 @@ import { AdminModule } from './admin/admin.module';
 import { AuthCommonModule } from './common/auth/auth-common.module';
 import { PlacesModule } from './places/places.module';
 import { BootstrapModule } from './bootstrap/bootstrap.module';
+import { EngagementModule } from './engagement/engagement.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { BootstrapModule } from './bootstrap/bootstrap.module';
     AdminModule,
     PlacesModule,
     BootstrapModule,
+    EngagementModule,
   ],
   controllers: [AppController],
   providers: [AppService],

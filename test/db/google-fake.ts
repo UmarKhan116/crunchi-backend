@@ -33,11 +33,16 @@ export function fakeGoogle(url: string): Response {
   switch (u.pathname) {
     case '/maps/api/place/nearbysearch/json':
       return json({ status: 'OK', results: [googlePlace] });
-    case '/maps/api/place/details/json':
+    case '/maps/api/place/details/json': {
+      const id = u.searchParams.get('place_id');
+      // Test ids: *MISSING* → Google NOT_FOUND, *BROKEN* → network error.
+      if (id.includes('MISSING')) return json({ status: 'NOT_FOUND' });
+      if (id.includes('BROKEN')) throw new Error('getaddrinfo ENOTFOUND');
       return json({
         status: 'OK',
         result: {
           ...googlePlace,
+          place_id: id,
           formatted_address: '1226 University Dr, Palm Desert, CA 92211, USA',
           opening_hours: {
             periods: [
@@ -54,6 +59,7 @@ export function fakeGoogle(url: string): Response {
           url: 'https://maps.google.com/?cid=1',
         },
       });
+    }
     case '/maps/api/place/textsearch/json':
       return json({ status: 'OK', results: [googlePlace] });
     case '/maps/api/place/autocomplete/json':
