@@ -80,7 +80,7 @@ function setup() {
   const postQuery = { countByPlaceId: jest.fn().mockResolvedValue(3) };
   const restaurants = {
     query: jest.fn(
-      async (sql: string, _params?: any[]): Promise<any[]> =>
+      async (...[sql]: [string, any[]?]): Promise<any[]> =>
         sql.includes('SELECT')
           ? [
               {
