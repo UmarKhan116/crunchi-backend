@@ -61,6 +61,27 @@ export class Restaurant {
   @Column({ default: true })
   is_active: boolean;
 
+  /**
+   * Contract `OpeningHours` ({ periods, weekdayText }) copied from the last
+   * Place Details response, so feeds and posts can show open/closed even
+   * when the details cache has expired.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  opening_periods: {
+    periods: {
+      open: { day: number; time: string };
+      close?: { day: number; time: string };
+    }[];
+    weekdayText: string[];
+  } | null;
+
+  /** Google utc_offset of the place, in minutes. */
+  @Column({ type: 'int', nullable: true })
+  utc_offset_minutes: number | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  hours_updated_at: Date | null;
+
   @CreateDateColumn()
   created_at: Date;
 

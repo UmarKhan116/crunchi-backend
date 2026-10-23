@@ -86,6 +86,8 @@ async function bootstrap() {
     .addTag('Search', 'Search and discovery features')
     .addTag('Settings', 'User preferences and app settings')
     .addTag('Session', 'Session management and tracking')
+    .addTag('Feed', 'Home feed: nearby places and posts')
+    .addTag('Places', 'Google Places proxy (key stays on the server)')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

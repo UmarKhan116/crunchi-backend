@@ -20,6 +20,7 @@ import { SessionModule } from './session/session.module';
 import { getDatabaseConfig } from './config/database.config';
 import { AdminModule } from './admin/admin.module';
 import { AuthCommonModule } from './common/auth/auth-common.module';
+import { PlacesModule } from './places/places.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { AuthCommonModule } from './common/auth/auth-common.module';
     SettingsModule,
     SessionModule,
     AdminModule,
+    PlacesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

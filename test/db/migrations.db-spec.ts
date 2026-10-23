@@ -16,6 +16,9 @@ import { Comment } from '../../src/entities/comment.entity';
 import { User } from '../../src/entities/user.entity';
 import { Category } from '../../src/entities/category.entity';
 import { Restaurant } from '../../src/entities/restaurant.entity';
+import { PlaceCacheEntry } from '../../src/entities/place-cache.entity';
+import { PlaceCacheService } from '../../src/places/place-cache.service';
+import { PlacesService } from '../../src/places/places.service';
 
 const describeDb = process.env.TEST_DB_PORT ? describe : describe.skip;
 
@@ -348,6 +351,115 @@ describeDb('Milestone 1 migrations (throwaway Postgres)', () => {
         ]);
         expect(await service.countByPlaceId('ChIJ_place')).toBe(5);
       });
+    });
+  });
+
+  describe('Places cache and enrichment (real SQL)', () => {
+    beforeEach(async () => {
+      await ds.query(
+        `TRUNCATE users, restaurants, favorites, place_cache RESTART IDENTITY CASCADE`,
+      );
+    });
+
+    it('PlaceCacheService stores jsonb, honours the TTL and upserts', async () => {
+      let clock = Date.UTC(2026, 9, 23, 12);
+      const cache = new PlaceCacheService(ds.getRepository(PlaceCacheEntry));
+      cache.now = () => new Date(clock);
+      const fetcher = jest
+        .fn()
+        .mockResolvedValueOnce({ a: 1 })
+        .mockResolvedValueOnce({ a: 2 });
+
+      expect(
+        await cache.getOrFetch('nearby:k', 'nearby', 60 * 60_000, fetcher),
+      ).toEqual({ a: 1 });
+      expect(
+        await cache.getOrFetch('nearby:k', 'nearby', 60 * 60_000, fetcher),
+      ).toEqual({ a: 1 });
+      clock += 60 * 60_000 + 1;
+      expect(
+        await cache.getOrFetch('nearby:k', 'nearby', 60 * 60_000, fetcher),
+      ).toEqual({ a: 2 });
+      expect(fetcher).toHaveBeenCalledTimes(2);
+
+      const rows = await ds.query(`SELECT key, kind, payload FROM place_cache`);
+      expect(rows).toEqual([
+        { key: 'nearby:k', kind: 'nearby', payload: { a: 2 } },
+      ]);
+      expect(
+        (await cache.getMany(['nearby:k', 'missing'])).get('nearby:k'),
+      ).toEqual({ a: 2 });
+    });
+
+    it('enrich: likes, favourites and stored hours from restaurants/favorites', async () => {
+      await ds.query(
+        `INSERT INTO users (id, email, password) VALUES (1, 'a@x.com', 'h'), (2, 'b@x.com', 'h')`,
+      );
+      // two rows for the same Google place (no unique constraint in prod)
+      await ds.query(
+        `INSERT INTO restaurants (id, name, google_place_id, opening_periods, utc_offset_minutes) VALUES
+           (1, 'R', 'gp1', NULL, NULL),
+           (2, 'R dup', 'gp1', '{"periods":[{"open":{"day":1,"time":"0900"}}],"weekdayText":[]}', -420),
+           (3, 'Other', 'gp2', NULL, NULL)`,
+      );
+      await ds.query(
+        `INSERT INTO favorites (user_id, restaurant_id) VALUES (1, 1), (2, 2), (2, 3)`,
+      );
+      const places = new PlacesService(
+        null,
+        new PlaceCacheService(ds.getRepository(PlaceCacheEntry)),
+        null,
+        null,
+        ds.getRepository(Restaurant),
+      );
+      const base = {
+        name: 'x',
+        rating: null,
+        userRatingsTotal: null,
+        address: null,
+        city: null,
+        lat: 0,
+        lng: 0,
+        categoryLabel: null,
+        priceLevel: null,
+        photos: [],
+        openingHours: null,
+        utcOffsetMinutes: null,
+        distanceM: null,
+        likesCount: 0,
+        isLiked: false,
+        isFavorite: false,
+      };
+      const [a, b, c] = await places.enrich(
+        [
+          { ...base, placeId: 'gp1' },
+          { ...base, placeId: 'gp2' },
+          { ...base, placeId: 'gp3' },
+        ],
+        1,
+      );
+      expect(a).toEqual(
+        expect.objectContaining({
+          likesCount: 2,
+          isLiked: true,
+          isFavorite: true,
+          utcOffsetMinutes: -420,
+          openingHours: {
+            periods: [{ open: { day: 1, time: '0900' } }],
+            weekdayText: [],
+          },
+        }),
+      );
+      expect(b).toEqual(
+        expect.objectContaining({ likesCount: 1, isLiked: false }),
+      );
+      expect(c).toEqual(
+        expect.objectContaining({ likesCount: 0, isLiked: false }),
+      );
+
+      const [guest] = await places.enrich([{ ...base, placeId: 'gp1' }], null);
+      expect(guest.isLiked).toBe(false);
+      expect(guest.likesCount).toBe(2);
     });
   });
 
