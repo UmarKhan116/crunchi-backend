@@ -41,9 +41,13 @@ export class PostsService {
 
   async create(createPostDto: CreatePostDto, userId?: number) {
     try {
-      // Validate category exists
+      // New clients may omit the category; old ones picked the first one.
       const category = await this.categoryRepository.findOne({
-        where: { id: createPostDto.category_id },
+        where:
+          createPostDto.category_id !== undefined
+            ? { id: createPostDto.category_id }
+            : {},
+        order: { id: 'ASC' },
       });
 
       if (!category) {
@@ -53,37 +57,34 @@ export class PostsService {
         };
       }
 
-      // Handle restaurant if provided
-      let restaurantId = null;
-      if (createPostDto.restaurant_id) {
-        // Check if restaurant exists, if not create it
-        let restaurant = await this.restaurantRepository.findOne({
-          where: { google_place_id: createPostDto.restaurant_id },
-        });
-
-        if (!restaurant && createPostDto.restaurant) {
-          // Create new restaurant entry
-          restaurant = this.restaurantRepository.create({
+      // restaurant_id (Google place id) is required; reuse or create its row.
+      let restaurant = await this.restaurantRepository.findOne({
+        where: { google_place_id: createPostDto.restaurant_id },
+        order: { id: 'ASC' },
+      });
+      if (!restaurant) {
+        restaurant = await this.restaurantRepository.save(
+          this.restaurantRepository.create({
             google_place_id: createPostDto.restaurant_id,
-            name: createPostDto.restaurant,
+            name:
+              createPostDto.restaurant ||
+              createPostDto.location ||
+              'Unknown Restaurant',
             latitude: createPostDto.latitude,
             longitude: createPostDto.longitude,
-          });
-          await this.restaurantRepository.save(restaurant);
-        }
-
-        restaurantId = restaurant?.id || null;
+          }),
+        );
       }
 
       // Create post
       const post = this.postRepository.create({
         description: createPostDto.description,
-        images: createPostDto.images || [],
+        images: createPostDto.images,
         location: createPostDto.location || null,
         user_id: userId || createPostDto.user_id,
-        category_id: createPostDto.category_id,
-        restaurant_id: restaurantId,
-        rating: createPostDto.rating || null,
+        category_id: category.id,
+        restaurant_id: restaurant.id,
+        rating: createPostDto.rating,
         latitude: createPostDto.latitude || null,
         longitude: createPostDto.longitude || null,
       });
@@ -94,6 +95,7 @@ export class PostsService {
         success: true,
         message: 'Post created successfully',
         post: savedPost,
+        data: { postId: String(savedPost.id) },
       };
     } catch (error) {
       return {

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, UnsupportedMediaTypeException } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MulterModule } from '@nestjs/platform-express';
 import { MediaController } from './media.controller';
@@ -28,7 +28,9 @@ import { uploadOwnerPrefix } from './media.service';
         },
       }),
       fileFilter: (req, file, cb) => {
-        const allowedTypes = /jpeg|jpg|png|gif|mp4|mov|avi|wmv|flv|webm/;
+        // HEIC/HEIF photos are converted to JPEG after upload (MediaService).
+        const allowedTypes =
+          /jpeg|jpg|png|gif|heic|heif|mp4|mov|quicktime|avi|wmv|flv|webm/;
         const mimetype = allowedTypes.test(file.mimetype);
         const extname_test = allowedTypes.test(
           extname(file.originalname).toLowerCase(),
@@ -38,8 +40,8 @@ import { uploadOwnerPrefix } from './media.service';
           return cb(null, true);
         }
         cb(
-          new Error(
-            'Invalid file type. Only images (JPEG, JPG, PNG, GIF) and videos (MP4, MOV, AVI, WMV, FLV, WEBM) are allowed.',
+          new UnsupportedMediaTypeException(
+            'Invalid file type. Only images (JPEG, PNG, HEIC, GIF) and videos (MP4, MOV, AVI, WMV, FLV, WEBM) are allowed.',
           ),
           false,
         );

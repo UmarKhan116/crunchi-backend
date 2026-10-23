@@ -977,5 +977,182 @@ describeDb(
           .expect(400);
       });
     });
+
+    // ------------------------------------------------------------- posts
+
+    describe('posts', () => {
+      const valid = {
+        description: 'Tacos!',
+        images: ['image-u3-1-a.jpg', 'image-u3-1-b.mp4'],
+        rating: 4,
+        restaurant: 'Trattoria Test',
+        restaurant_id: PLACE_ID,
+        latitude: ORIGIN.lat,
+        longitude: ORIGIN.lng,
+      };
+      let postId: string;
+
+      it('post-save validates the new rules (400 with field errors)', async () => {
+        const cases: [Record<string, unknown>, string][] = [
+          [{ description: 'x'.repeat(1001) }, 'description'],
+          [{ images: [] }, 'images'],
+          [
+            { images: Array.from({ length: 11 }, (_, i) => `i${i}.jpg`) },
+            'images',
+          ],
+          [{ images: undefined }, 'images'],
+          [{ rating: 6 }, 'rating'],
+          [{ rating: 0 }, 'rating'],
+          [{ rating: undefined }, 'rating'],
+          [{ restaurant_id: undefined }, 'restaurant_id'],
+          [{ restaurant_id: '' }, 'restaurant_id'],
+        ];
+        for (const [patch, field] of cases) {
+          const res = await http
+            .post('/api/post-save')
+            .set(auth(carol))
+            .send({ ...valid, ...patch })
+            .expect(400);
+          expect(res.body.errors[field]).toBeDefined();
+        }
+      });
+
+      it('post-save returns the legacy shape plus data.postId; category defaults to the first one', async () => {
+        const res = await http
+          .post('/api/post-save')
+          .set(auth(carol))
+          .send(valid)
+          .expect(201);
+        expect(res.body.success).toBe(true);
+        expect(res.body.post.id).toEqual(expect.any(Number));
+        expect(res.body.data).toEqual({ postId: String(res.body.post.id) });
+        postId = res.body.data.postId;
+        const [row] = await ds.query(
+          `SELECT category_id, rating::float AS rating FROM posts WHERE id = $1`,
+          [postId],
+        );
+        expect(row).toEqual({ category_id: 1, rating: 4 });
+      });
+
+      it('legacy quarter-star ratings are rounded, not rejected', async () => {
+        const res = await http
+          .post('/api/post-save')
+          .set(auth(carol))
+          .send({ ...valid, rating: 3.75, category_id: 2, user_id: carol.id })
+          .expect(201);
+        const [row] = await ds.query(
+          `SELECT category_id, rating::float AS rating FROM posts WHERE id = $1`,
+          [res.body.data.postId],
+        );
+        expect(row).toEqual({ category_id: 2, rating: 4 });
+        await ds.query(`UPDATE posts SET is_active = false WHERE id = $1`, [
+          res.body.data.postId,
+        ]);
+      });
+
+      it('GET /api/posts/:postId returns the contract Post for guests and users', async () => {
+        await http
+          .put(`/api/posts/${postId}/like`)
+          .set(auth(alice))
+          .send({ liked: true })
+          .expect(200);
+        const guest = await http.get(`/api/posts/${postId}`).expect(200);
+        expect(guest.body.data).toEqual({
+          postId,
+          user: {
+            id: String(carol.id),
+            userName: 'carol',
+            fullName: 'Carol',
+            avatarUrl: null,
+          },
+          place: expect.objectContaining({
+            placeId: PLACE_ID,
+            name: 'Trattoria Test',
+          }),
+          description: 'Tacos!',
+          rating: 4,
+          media: [
+            {
+              url: 'https://api.test/storage/image-u3-1-a.jpg',
+              type: 'image',
+              thumbnailUrl: null,
+            },
+            {
+              url: 'https://api.test/storage/image-u3-1-b.mp4',
+              type: 'video',
+              thumbnailUrl: null,
+            },
+          ],
+          likesCount: 1,
+          commentsCount: 0,
+          isLiked: false,
+          createdAt: expect.stringMatching(/Z$/),
+          distanceM: null,
+        });
+        const mine = await http
+          .get(`/api/posts/${postId}`)
+          .set(auth(alice))
+          .expect(200);
+        expect(mine.body.data.isLiked).toBe(true);
+        expect(JSON.stringify(mine.body)).not.toMatch(
+          /@example\.com|password|device_token/,
+        );
+      });
+
+      it('GET /api/posts/:postId 404s for hidden, missing or malformed ids', async () => {
+        const [hidden] = await ds.query(
+          `SELECT id FROM posts WHERE is_active = false LIMIT 1`,
+        );
+        await http.get(`/api/posts/${hidden.id}`).expect(404);
+        await http.get('/api/posts/999999').expect(404);
+        const bad = await http.get('/api/posts/1;DROP').expect(404);
+        expect(bad.body.success).toBe(false);
+      });
+
+      it('imageupload stores HEIC as JPEG and rejects other types with 415', async () => {
+        const res = await http
+          .post('/api/imageupload')
+          .set(auth(alice))
+          .attach(
+            'image',
+            path.join(__dirname, '..', 'fixtures', 'tiny.heic'),
+            {
+              filename: 'IMG_0001.HEIC',
+              contentType: 'image/heic',
+            },
+          )
+          .expect(201);
+        expect(res.body.url).toMatch(
+          new RegExp(`^image-u${alice.id}-\\d+-\\d+\\.jpg$`),
+        );
+        const stored = fs.readFileSync(path.join(STORAGE, res.body.url));
+        expect([...stored.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+        expect(
+          fs.existsSync(
+            path.join(STORAGE, res.body.url.replace(/\.jpg$/, '.heic')),
+          ),
+        ).toBe(false);
+
+        const png = await http
+          .post('/api/imageupload')
+          .set(auth(alice))
+          .attach('image', JPEG, {
+            filename: 'a.png',
+            contentType: 'image/png',
+          })
+          .expect(201);
+        expect(png.body.url).toMatch(/\.png$/);
+
+        const txt = await http
+          .post('/api/imageupload')
+          .set(auth(alice))
+          .attach('image', Buffer.from('hello'), {
+            filename: 'notes.txt',
+            contentType: 'text/plain',
+          })
+          .expect(415);
+        expect(txt.body.success).toBe(false);
+      });
+    });
   },
 );

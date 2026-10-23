@@ -4,15 +4,19 @@ import {
   IsOptional,
   IsInt,
   IsNumber,
+  ArrayMaxSize,
+  MaxLength,
 } from 'class-validator';
 
 export class UpdatePostDto {
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   description?: string;
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(10)
   @IsString({ each: true })
   images?: string[];
 

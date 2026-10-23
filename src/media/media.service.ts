@@ -1,4 +1,9 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  UnsupportedMediaTypeException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Post } from '../entities/post.entity';
@@ -10,6 +15,12 @@ import {
   STORAGE_ROOT,
 } from '../common/utils/storage-path';
 import { toSafeUser } from '../common/utils/user-sanitizer';
+import {
+  convertHeicFileToJpeg,
+  heicConverterPath,
+  looksLikeHeic,
+  readHead,
+} from './heic-converter';
 
 /** Uploads are named `image-u<userId>-…` (see media.module.ts) to record the owner. */
 export function uploadOwnerPrefix(userId: number) {
@@ -18,6 +29,8 @@ export function uploadOwnerPrefix(userId: number) {
 
 @Injectable()
 export class MediaService {
+  private readonly logger = new Logger(MediaService.name);
+
   constructor(
     @InjectRepository(Post)
     private readonly postRepository: Repository<Post>,
@@ -26,26 +39,59 @@ export class MediaService {
   ) {}
 
   async uploadImage(file: Express.Multer.File) {
-    try {
-      if (!file) {
-        return {
-          success: false,
-          message: 'No file provided',
-        };
-      }
-
-      // File is already saved by multer, just return the filename
-      return {
-        success: true,
-        message: 'Image uploaded successfully',
-        url: file.filename,
-        path: `/storage/${file.filename}`,
-      };
-    } catch (error) {
+    if (!file) {
       return {
         success: false,
-        message: 'Failed to upload image: ' + error.message,
+        message: 'No file provided',
       };
+    }
+
+    // HEIC (iPhone photos) is stored as JPEG so every client can show it.
+    const filename = (await this.isHeic(file))
+      ? await this.convertHeic(file)
+      : file.filename;
+
+    // File is already saved by multer, just return the filename
+    return {
+      success: true,
+      message: 'Image uploaded successfully',
+      url: filename,
+      path: `/storage/${filename}`,
+    };
+  }
+
+  private async isHeic(file: Express.Multer.File): Promise<boolean> {
+    if (/\.(heic|heif)$/i.test(file.originalname ?? '')) return true;
+    if (/image\/hei[cf]/i.test(file.mimetype ?? '')) return true;
+    try {
+      return file.path ? looksLikeHeic(readHead(file.path)) : false;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Converts in place to `<name>.jpg` and removes the HEIC original. */
+  private async convertHeic(file: Express.Multer.File): Promise<string> {
+    const source = file.path;
+    const jpegName = file.filename.replace(/\.[^./]*$/, '') + '.jpg';
+    const target = path.join(path.dirname(source), jpegName);
+    try {
+      if (!heicConverterPath()) {
+        throw new UnsupportedMediaTypeException(
+          'HEIC images are not supported on this server; upload a JPEG instead.',
+        );
+      }
+      await convertHeicFileToJpeg(source, target);
+      return jpegName;
+    } catch (error) {
+      fs.rmSync(target, { force: true });
+      if (error instanceof UnsupportedMediaTypeException) throw error;
+      this.logger.warn(`HEIC conversion failed: ${error?.message}`);
+      throw new UnsupportedMediaTypeException(
+        'Could not read this HEIC image; upload a JPEG instead.',
+      );
+    } finally {
+      if (source !== target) fs.rmSync(source, { force: true });
     }
   }
 

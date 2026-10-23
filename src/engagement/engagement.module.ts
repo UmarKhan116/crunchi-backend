@@ -10,6 +10,7 @@ import { EngagementController } from './engagement.controller';
 import { PostLikesService } from './post-likes.service';
 import { PlaceSavesService } from './place-saves.service';
 import { CommentsService } from './comments.service';
+import { PostReadService } from './post-read.service';
 
 /**
  * Milestone 2 interactions on posts and places: set-state likes and
@@ -23,6 +24,12 @@ import { CommentsService } from './comments.service';
     NotificationsModule,
   ],
   controllers: [EngagementController],
-  providers: [PostLikesService, PlaceSavesService, CommentsService],
+  providers: [
+    PostLikesService,
+    PlaceSavesService,
+    CommentsService,
+    PostReadService,
+  ],
+  exports: [PostReadService],
 })
 export class EngagementModule {}

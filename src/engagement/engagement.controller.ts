@@ -27,6 +27,7 @@ import { parseId } from '../common/utils/sql';
 import { SetFavoriteDto, SetLikedDto } from './dto/set-state.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { CommentsService } from './comments.service';
+import { PostReadService } from './post-read.service';
 import { PostLikesService } from './post-likes.service';
 import { PlaceSavesService } from './place-saves.service';
 
@@ -41,12 +42,33 @@ export class EngagementController {
     private readonly postLikes: PostLikesService,
     private readonly placeSaves: PlaceSavesService,
     private readonly comments: CommentsService,
+    private readonly postRead: PostReadService,
   ) {}
 
   private postId(value: string): number {
     const id = parseId(value);
     if (!id) throw new NotFoundException('Post not found');
     return id;
+  }
+
+  @Get('posts/:postId')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'One post (auth optional)',
+    description: 'Used by deep links and push. data: Post',
+  })
+  @ApiParam({ name: 'postId' })
+  @ApiResponse({ status: 200, description: 'Post' })
+  @ApiResponse({ status: 404, description: 'Unknown or hidden post' })
+  async getPost(
+    @Param('postId') postId: string,
+    @CurrentUser('id') userId: number | undefined,
+    @BaseUrl() baseUrl: string,
+  ) {
+    return ok(
+      await this.postRead.getPost(this.postId(postId), userId, baseUrl),
+    );
   }
 
   @Put('posts/:postId/like')
