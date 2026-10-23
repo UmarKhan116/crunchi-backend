@@ -307,8 +307,11 @@ describe('AuthService.socialLogin', () => {
       new JwtService({ secret: 'test' }),
       verifier as any,
       configWith(env),
+      deviceTokens as any,
     );
   }
+
+  const deviceTokens = { register: jest.fn().mockResolvedValue(undefined) };
 
   beforeEach(() => {
     users = [];
@@ -377,6 +380,8 @@ describe('AuthService.socialLogin', () => {
         email: 'ann@example.com',
         device_token: 'fcm-1',
       });
+      // Also stored in device_tokens so pushes reach every device.
+      expect(deviceTokens.register).toHaveBeenCalledWith(users[0].id, 'fcm-1');
       expect(res.user.password).toBeUndefined();
     });
 
