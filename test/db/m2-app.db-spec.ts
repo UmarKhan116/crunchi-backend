@@ -1548,5 +1548,144 @@ describeDb(
         await http.delete('/api/me').set(auth(dave)).expect(404);
       });
     });
+
+    // ------------------------------------------------------------- share
+
+    describe('share pages and app-link files', () => {
+      const expectHtml = (res: request.Response, status: number) => {
+        expect(res.status).toBe(status);
+        expect(res.headers['content-type']).toBe('text/html; charset=utf-8');
+        expect(res.headers['cache-control']).toBe('public, max-age=300');
+        expect(res.headers['content-security-policy']).toMatch(
+          /default-src 'none'/,
+        );
+      };
+
+      it('GET /p/:postId renders OG/Twitter tags, the smart banner and store buttons', async () => {
+        const [post] = await ds.query(
+          `SELECT id FROM posts WHERE user_id = $1 AND is_active ORDER BY id LIMIT 1`,
+          [carol.id],
+        );
+        const res = await http.get(`/p/${post.id}`);
+        expectHtml(res, 200);
+        const html = res.text;
+        expect(html).toContain(
+          '<meta property="og:title" content="Trattoria Test">',
+        );
+        expect(html).toContain(
+          // No details cached for this place yet, so no city.
+          '<meta property="og:description" content="★ 4 · Italian">',
+        );
+        expect(html).toContain(
+          '<meta property="og:image" content="https://api.test/storage/image-u3-1-a.jpg">',
+        );
+        expect(html).toContain(
+          `<meta property="og:url" content="https://share.test/p/${post.id}">`,
+        );
+        expect(html).toContain(
+          '<meta name="twitter:card" content="summary_large_image">',
+        );
+        expect(html).toContain(
+          `<meta name="apple-itunes-app" content="app-id=1234567890, app-argument=https://share.test/p/${post.id}">`,
+        );
+        expect(html).toContain('https://apps.apple.com/app/id1234567890');
+        expect(html).toContain(
+          'https://play.google.com/store/apps/details?id=com.crunchii',
+        );
+        expect(html).toContain('Review by @carol');
+        expect(html).not.toMatch(/test-places-key|@example\.com/);
+      });
+
+      it('hidden, missing or malformed posts get the 404 page', async () => {
+        const [hidden] = await ds.query(
+          `SELECT id FROM posts WHERE is_active = false LIMIT 1`,
+        );
+        for (const p of [`/p/${hidden.id}`, '/p/999999', '/p/abc']) {
+          const res = await http.get(p);
+          expectHtml(res, 404);
+          expect(res.text).toContain('isn’t available');
+        }
+      });
+
+      it('GET /r/:placeId uses the proxy photo at 1200 px, never a Google URL', async () => {
+        const res = await http.get('/r/ChIJ_test_place_0003');
+        expectHtml(res, 200);
+        expect(res.text).toContain(
+          `<meta property="og:image" content="https://api.test/api/places/photo/${PHOTO_REF}?w=1200">`,
+        );
+        expect(res.text).toContain(
+          '<meta property="og:description" content="★ 4.6 · Restaurant · Palm Desert">',
+        );
+        expect(res.text).not.toMatch(/googleapis|test-places-key/);
+        expectHtml(await http.get('/r/ChIJ_MISSING_share'), 404);
+        expectHtml(await http.get('/r/bad%20id'), 404);
+      });
+
+      it('GET /u/:userId escapes everything the user typed', async () => {
+        await ds.query(
+          `UPDATE users SET full_name = $2, bio = $3 WHERE id = $1`,
+          [
+            bob.id,
+            `Bob"><script>alert(1)</script>`,
+            `</p><img src=x onerror=alert(2)>`,
+          ],
+        );
+        const res = await http.get(`/u/${bob.id}`);
+        expectHtml(res, 200);
+        expect(res.text).not.toMatch(/<script|<img src=x/i);
+        expect(res.text).toContain(
+          'Bob&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt; (@bob)',
+        );
+        expect(res.text).toContain(
+          '&lt;/p&gt;&lt;img src=x onerror=alert(2)&gt;',
+        );
+        expect(res.text).toMatch(/1 review · \d+ followers? · on Crunchii/);
+        expectHtml(await http.get('/u/999999'), 404);
+      });
+
+      it('apple-app-site-association: JSON, no redirect, appIDs and components from env', async () => {
+        const res = await http
+          .get('/.well-known/apple-app-site-association')
+          .redirects(0);
+        expect(res.status).toBe(200);
+        expect(res.headers['content-type']).toMatch(/^application\/json/);
+        expect(JSON.parse(res.text)).toEqual({
+          applinks: {
+            details: [
+              {
+                appIDs: ['TEAM123456.com.crunchy'],
+                components: [{ '/': '/p/*' }, { '/': '/r/*' }, { '/': '/u/*' }],
+              },
+            ],
+          },
+        });
+      });
+
+      it('assetlinks.json lists the package and fingerprints from env', async () => {
+        const res = await http.get('/.well-known/assetlinks.json').redirects(0);
+        expect(res.status).toBe(200);
+        expect(res.headers['content-type']).toMatch(/^application\/json/);
+        expect(res.body).toEqual([
+          {
+            relation: ['delegate_permission/common.handle_all_urls'],
+            target: {
+              namespace: 'android_app',
+              package_name: 'com.crunchii',
+              sha256_cert_fingerprints: ['AA:BB:CC', 'DD:EE:FF'],
+            },
+          },
+        ]);
+      });
+
+      it('static files and legal pages still work next to the share routes', async () => {
+        const legal = await http.get('/privacy-policy').expect(200);
+        expect(legal.headers['content-type']).toMatch(/html/);
+        fs.writeFileSync(path.join(STORAGE, 'image-share-static.jpg'), JPEG);
+        const img = await http
+          .get('/storage/image-share-static.jpg')
+          .expect(200);
+        expect(Buffer.compare(img.body, JPEG)).toBe(0);
+      });
+    });
   },
 );

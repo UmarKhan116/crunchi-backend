@@ -25,6 +25,7 @@ import { PlacesModule } from './places/places.module';
 import { BootstrapModule } from './bootstrap/bootstrap.module';
 import { EngagementModule } from './engagement/engagement.module';
 import { UsersModule } from './users/users.module';
+import { ShareModule } from './share/share.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { UsersModule } from './users/users.module';
     BootstrapModule,
     EngagementModule,
     UsersModule,
+    ShareModule,
   ],
   controllers: [AppController],
   providers: [AppService],
